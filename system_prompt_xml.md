@@ -10,6 +10,8 @@ Available tools:
 - run_command(command)
 - web_search(query)
 
+The web_search tool searches the web AND includes distilled content from the top relevant pages in its result. One call is usually enough; you do NOT need a separate URL-fetch action.
+
 CRITICAL RULES:
 
 1. You cannot execute tools yourself. To run a tool you MUST emit an <action>.

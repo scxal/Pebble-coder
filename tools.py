@@ -3,9 +3,45 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
+
+
+# --- Translation loading ---
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_lang = "es"
+try:
+    _cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
+    _lang = (_cfg.get("language") or "es") if _cfg.get("language") in ("es", "en") else "es"
+except Exception:
+    pass
+
+_t_es = {}
+try:
+    _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text())
+except FileNotFoundError:
+    pass
+
+_translations = {}
+try:
+    _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text())
+except FileNotFoundError:
+    _translations = {}
+
+_tool_t = _translations.get("tools", {})
+
+
+def t(key: str, **kwargs) -> str:
+    val = _tool_t.get(key, _t_es.get("tools", {}).get(key, ""))
+    if kwargs:
+        try:
+            val = val.format(**kwargs)
+        except (KeyError, IndexError):
+            pass
+    return val
+
 
 MAX_OUTPUT_CHARS = 3000
 MAX_READ_LINES = 300
@@ -31,14 +67,14 @@ def list_files(path: str = ".") -> str:
     cleaned_path = path.strip().strip("'\"") or "."
     target = Path(cleaned_path).resolve()
     if not target.exists():
-        return f"ERROR: Path does not exist: {cleaned_path}"
+        return t("path_not_exists").format(path=cleaned_path)
     if not target.is_dir():
-        return f"ERROR: Path is not a directory: {cleaned_path}"
+        return t("path_not_directory").format(path=cleaned_path)
 
     try:
         entries = sorted(list(target.iterdir()), key=lambda p: (not p.is_dir(), p.name.lower()))
         if not entries:
-            return "(empty directory)"
+            return t("directory_empty")
 
         lines = []
         for entry in entries[:100]:
@@ -62,21 +98,21 @@ def list_files(path: str = ".") -> str:
 
         return "\n".join(lines)
     except PermissionError:
-        return f"ERROR: Permission denied accessing {cleaned_path}"
+        return t("permission_denied_list").format(path=cleaned_path)
     except Exception as exc:
-        return f"ERROR: Could not list directory {cleaned_path}: {exc}"
+        return t("listing_failed").format(path=cleaned_path, exc=exc)
 
 
 def read_file(path: str) -> str:
     cleaned_path = path.strip().strip("'\"")
     if not cleaned_path:
-        return "ERROR: File path cannot be empty"
+        return t("file_path_empty")
 
     target = Path(cleaned_path).resolve()
     if not target.exists():
-        return f"ERROR: File not found: {cleaned_path}"
+        return t("file_not_found").format(path=cleaned_path)
     if target.is_dir():
-        return f"ERROR: '{cleaned_path}' is a directory, use list_files instead"
+        return t("is_directory").format(path=cleaned_path)
 
     try:
         try:
@@ -87,38 +123,38 @@ def read_file(path: str) -> str:
         lines = content.splitlines()
         if len(lines) > MAX_READ_LINES:
             truncated = "\n".join(lines[:MAX_READ_LINES])
-            return f"{truncated}\n\n[WARNING: Truncated to first {MAX_READ_LINES} lines]"
+            return f"{truncated}{t('truncated_lines').format(lines=MAX_READ_LINES)}"
 
         if len(content) > MAX_OUTPUT_CHARS:
-            return content[:MAX_OUTPUT_CHARS] + f"\n\n[WARNING: Output truncated to {MAX_OUTPUT_CHARS} characters]"
+            return content[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
 
-        return content if content else "(empty file)"
+        return content if content else t("empty_file")
     except PermissionError:
-        return f"ERROR: Permission denied reading {cleaned_path}"
+        return t("permission_denied_read").format(path=cleaned_path)
     except Exception as exc:
-        return f"ERROR: Failed reading file {cleaned_path}: {exc}"
+        return t("read_failed").format(path=cleaned_path, exc=exc)
 
 
 def write_file(path: str, content: str) -> str:
     cleaned_path = path.strip().strip("'\"")
     if not cleaned_path:
-        return "ERROR: File path cannot be empty"
+        return t("write_path_empty")
 
     try:
         target = Path(cleaned_path).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
-        return f"File '{cleaned_path}' written successfully ({len(content)} characters)."
+        return t("write_success").format(path=cleaned_path, count=len(content))
     except PermissionError:
-        return f"ERROR: Permission denied writing to {cleaned_path}"
+        return t("permission_denied_write").format(path=cleaned_path)
     except Exception as exc:
-        return f"ERROR: Failed writing to file {cleaned_path}: {exc}"
+        return t("write_failed").format(path=cleaned_path, exc=exc)
 
 
 def run_command(command: str, timeout: int = 30) -> str:
     command = command.strip()
     if not command:
-        return "ERROR: Command cannot be empty"
+        return t("command_empty")
 
     try:
         proc = subprocess.run(
@@ -149,13 +185,13 @@ def run_command(command: str, timeout: int = 30) -> str:
                 result = "(Command executed successfully with no output)"
 
         if len(result) > MAX_OUTPUT_CHARS:
-            result = result[:MAX_OUTPUT_CHARS] + f"\n\n[WARNING: Output truncated to {MAX_OUTPUT_CHARS} characters]"
+            result = result[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
 
         return result
     except subprocess.TimeoutExpired:
-        return f"ERROR: Command timed out after {timeout} seconds"
+        return t("command_timeout").format(seconds=timeout)
     except Exception as exc:
-        return f"ERROR: Failed executing command: {exc}"
+        return t("command_failed").format(exc=exc)
 
 
 def _run_browser(bin_path: str, args: list, timeout: int) -> str:
@@ -179,30 +215,177 @@ def _browser_get_text(bin_path: str, selector: str, timeout: int) -> str:
     return _run_browser(bin_path, ["get", "text", selector], timeout)
 
 
-def web_search(query: str, timeout: int = 20, max_results: int = 4) -> str:
+# Palabras vacias para no usarlas como terminos de relevancia al destilar.
+_STOPWORDS = {
+    "de", "la", "el", "en", "y", "a", "los", "las", "un", "una", "que", "con",
+    "por", "para", "es", "del", "se", "lo", "como", "mas", "más", "su", "al",
+    "no", "o", "pero", "este", "esta", "esto", "qué", "cuál", "cuando", "donde",
+    "quien", "quién", "sobre", "info", "informacion", "información", "resultado",
+    "the", "a", "an", "and", "of", "to", "in", "on", "for", "with", "is", "are",
+    "was", "were", "what", "how", "why", "when", "where", "who", "can", "do",
+    "does", "it", "its", "at", "by", "as", "or", "not", "but", "this", "that",
+    "these", "those", "about", "i", "you", "me", "my", "tell", "need", "want",
+    "know", "search", "give", "please",
+}
+
+# JS que extrae resultados estructurados de Bing (titulo, URL limpia, snippet).
+_EXTRACT_JS = r"""(function(){
+  // Bing envuelve cada resultado en un redirect /ck/a?...&u=a1<base64>. Aqui se
+  // resuelve la URL real (base64 en el parametro 'u=a1').
+  function cleanUrl(h){
+    if(!/^https?:/i.test(h)) return '';
+    var u;
+    try{ u = new URL(h); }catch(e){ return ''; }
+    if(/bing\.com$|microsoft/i.test(u.hostname)){
+      var m = h.match(/[?&]u=a1([A-Za-z0-9_\-]+)/);
+      if(!m) return '';
+      var b64 = m[1].replace(/-/g,'+').replace(/_/g,'/');
+      while(b64.length % 4) b64 += '=';
+      try{
+        var raw = atob(b64);
+        var bytes = new Uint8Array(raw.length);
+        for(var j=0;j<raw.length;j++) bytes[j] = raw.charCodeAt(j)&0xff;
+        var dec = new TextDecoder().decode(bytes);
+        return /^https?:/i.test(dec) ? dec : '';
+      }catch(e){ return ''; }
+    }
+    return u.href;
+  }
+  function textOf(el){ return el ? (el.textContent||'').trim() : ''; }
+  var items = document.querySelectorAll('#b_results > li.b_algo');
+  if(!items.length){ items = document.querySelectorAll('li'); }
+  var all = Array.prototype.slice.call(items, 0, 60);
+  var seen = {}, out = [];
+  for(var i=0;i<all.length && out.length<10;i++){
+    var li = all[i];
+    var a = li.querySelector('h2 a') || li.querySelector('h3 a') || li.querySelector('a');
+    var url = a ? cleanUrl(a.href) : '';
+    if(!url || seen[url]) continue; seen[url] = 1;
+    var title = textOf(a);
+    if(title.length < 3) continue;
+    var snip = textOf(li.querySelector('.b_caption p') || li.querySelector('.b_lineclamp2, .b_lineclamp3, .b_lineclamp4') || li);
+    out.push({t:title, u:url, s:snip.slice(0,280)});
+  }
+  return JSON.stringify(out);
+})()"""
+
+
+def _query_keywords(query: str) -> list:
+    """Extrae los terminos significativos de la consulta para filtrar relevancia."""
+    words = re.findall(r"[a-záéíóúñü0-9]+", query.lower())
+    return [w for w in words if len(w) > 2 and w not in _STOPWORDS][:8]
+
+
+def _extract_results(bin_path: str, query: str, timeout: int) -> list:
+    """Abre Bing y devuelve resultados estructurados como lista de dicts {t,u,s}."""
+    search_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+    if not _run_browser(bin_path, ["open", search_url, "--timeout", str(timeout * 1000)], timeout + 5):
+        return []
+    # Reintenta la extraccion: la pagina puede no haber terminado de renderizar.
+    for _ in range(3):
+        out = _run_browser(bin_path, ["eval", _EXTRACT_JS], timeout)
+        try:
+            data = json.loads(out)
+            if isinstance(data, str):
+                data = json.loads(data)
+        except (ValueError, TypeError):
+            data = None
+        if isinstance(data, list) and data:
+            break
+        time.sleep(1)
+
+    if not isinstance(data, list):
+        return []
+    results = []
+    for r in data:
+        url = (r.get("u") or "").strip()
+        title = (r.get("t") or "").strip()
+        snippet = (r.get("s") or "").strip()
+        if url and title:
+            results.append({"u": url, "t": title, "s": snippet})
+    return results
+
+
+def _relevance_filter(text: str, keywords: list, budget: int) -> str:
+    """Conserva solo las lineas relacionadas con los terminos de la consulta."""
+    if not keywords:
+        return text[:budget]
+    lines = text.splitlines()
+    kept = [False] * len(lines)
+    for i, ln in enumerate(lines):
+        low = ln.lower()
+        if any(k in low for k in keywords):
+            for j in range(max(0, i - 1), min(len(lines), i + 2)):
+                kept[j] = True
+    filtered = "\n".join(ln for ln, keep in zip(lines, kept) if keep).strip()
+    if not filtered:
+        filtered = text
+    return filtered[:budget]
+
+
+def _distill_page(bin_path: str, url: str, keywords: list, timeout: int, budget: int) -> str:
+    """Abre una pagina en el navegador y destila el texto relevante renderizado."""
+    if not _run_browser(bin_path, ["open", url, "--timeout", str(timeout * 1000)], timeout + 5):
+        return ""
+    out = _browser_get_text(bin_path, "main", timeout) or _browser_get_text(bin_path, "body", timeout)
+    if not out or "no matching page sections" in out.lower():
+        return ""
+    return _relevance_filter(out, keywords, budget)
+
+
+def web_search(query: str, timeout: int = 20, max_results: int = 4, auto_fetch: str = "first") -> str:
     query = query.strip().strip("'\"")
     if not query:
-        return "ERROR: Search query cannot be empty"
+        return t("search_query_empty")
 
     bin_path = find_agent_browser()
     if not bin_path:
-        return "ERROR: 'agent-browser' tool is not installed or not found in PATH."
+        return t("browser_not_installed")
 
-    # Si el input es una URL directa, extraer el texto de la pagina
+    keywords = _query_keywords(query)
+    fetch_budget = min(2400, MAX_OUTPUT_CHARS)
+
+    # URL directa -> destilar el contenido de la pagina entregada.
     if query.startswith("http://") or query.startswith("https://"):
+        distilled = _distill_page(bin_path, query, keywords, timeout, fetch_budget)
+        if distilled:
+            return t("page_distilled_header").format(url=query, text=distilled)
         if _run_browser(bin_path, ["open", query, "--timeout", str(timeout * 1000)], timeout + 5):
             text = _browser_get_text(bin_path, "main", timeout)
-            return text[:2500] if text else "(Page content is empty)"
-        return "ERROR: Could not open URL"
+            return text[:2500] if text else t("page_content_empty")
+        return t("open_url_failed")
 
-    # Busqueda web con Bing (Yahoo suele bloquear el acceso automatizado)
-    search_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
-    if _run_browser(bin_path, ["open", search_url, "--timeout", str(timeout * 1000)], timeout + 5):
-        text = _browser_get_text(bin_path, "main", timeout)
-        if text:
-            return f"Search results for: \"{query}\"\n\n{text[:4000]}"
+    results = _extract_results(bin_path, query, timeout)
+    if not results:
+        search_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+        if _run_browser(bin_path, ["open", search_url, "--timeout", str(timeout * 1000)], timeout + 5):
+            text = _browser_get_text(bin_path, "main", timeout)
+            if text:
+                if len(text) > MAX_OUTPUT_CHARS:
+                    text = text[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
+                return t("search_result_header").format(query=query, text=text)
+        return t("no_search_results").format(query=query)
 
-    return f"No relevant search results found for '{query}'."
+    results = results[:max(1, min(int(max_results or 4), len(results)))]
+
+    parts = [t("search_header").format(query=query)]
+    for i, r in enumerate(results, 1):
+        parts.append(f"{i}. {r['t']}\n   URL: {r['u']}\n   {r['s']}")
+
+    auto_fetch = (auto_fetch or "none").strip().lower()
+    if auto_fetch in ("first", "top", "top2", "2", "true", "yes"):
+        fetch_count = 1 if auto_fetch in ("first", "true", "yes") else min(2, len(results))
+        used = sum(len(p) for p in parts)
+        per_page = max(200, (fetch_budget - used - 200) // fetch_count)
+        for i, r in enumerate(results[:fetch_count], 1):
+            content = _distill_page(bin_path, r["u"], keywords, timeout, per_page)
+            if content:
+                parts.append(f"[Content from result {i} ({r['t']})]: {content}")
+
+    text = "\n\n".join(parts)
+    if len(text) > MAX_OUTPUT_CHARS:
+        text = text[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
+    return text
 
 
 def parse_write_file_args(raw_input: str) -> Tuple[str, str]:
@@ -281,7 +464,7 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
             "read_file": {"enabled": True},
             "write_file": {"enabled": True},
             "run_command": {"enabled": True, "timeout": 30},
-            "web_search": {"enabled": True, "timeout": 20, "max_results": 4},
+            "web_search": {"enabled": True, "timeout": 20, "max_results": 4, "auto_fetch": "first"},
         }
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -308,7 +491,7 @@ def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> s
     elif action == "write_file":
         path, content = parse_write_file_args(clean_input)
         if not path:
-            return "ERROR: write_file requires a path argument."
+            return t("write_path_empty")
         return write_file(path, content)
 
     elif action == "run_command":
@@ -318,6 +501,7 @@ def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> s
     elif action == "web_search":
         timeout = tool_cfg.get("timeout", 20)
         max_results = tool_cfg.get("max_results", 4)
-        return web_search(clean_input, timeout=timeout, max_results=max_results)
+        auto_fetch = tool_cfg.get("auto_fetch", "first")
+        return web_search(clean_input, timeout=timeout, max_results=max_results, auto_fetch=auto_fetch)
 
     return f"ERROR: Tool '{action}' execution handler not found."

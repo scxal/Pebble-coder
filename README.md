@@ -201,15 +201,16 @@ Para evitar que la pantalla se inunde con datos innecesarios:
   },
   "web_search": {
     "enabled": true,
-    "description": "web_search(query) - Busca en la web usando agent-browser y retorna los resultados principales de forma concisa.",
+    "description": "web_search(query) - Busca en la web, devuelve resultados estructurados y destila el contenido de las paginas mas relevantes.",
     "timeout": 20,
-    "max_results": 4
+    "max_results": 4,
+    "auto_fetch": "first"
   }
 }
 ```
 
 - **Para desactivar una herramienta:** Cambia `"enabled": false`. El modelo no podrá invocarla.
-- **Para configurar búsquedas web:** Ajusta `"max_results": 3` o `"timeout": 25` dentro de `"web_search"`.
+- **Para configurar búsquedas web:** Ajusta `"max_results"` (nº de resultados), `"timeout"` en segundos y `"auto_fetch"` dentro de `"web_search"`. `"auto_fetch"` admite `"none"` (solo snippets), `"first"` (destila la página del mejor resultado, por defecto) o `"top"` (destila las dos primeras).
 
 ---
 
@@ -263,11 +264,13 @@ python3 agent.py "Lee config.json y dime qué modelo está seleccionado"
 
 ## Herramientas Disponibles
 
-1. **`web_search(query)`** *(Nueva)*:
-   - Utiliza la herramienta del sistema `agent-browser` para realizar búsquedas web en tiempo real.
-   - Extrae de manera ordenada los resultados principales (Título, URL limpia y Snippet descriptivo).
-   - Si la consulta es una URL (empieza con `http://` o `https://`), extrae directamente el texto de la página.
+1. **`web_search(query)`** *(única herramienta de investigación)*:
+   - Utiliza la herramienta del sistema `agent-browser` para realizar búsquedas web en tiempo real (Bing).
+   - Extrae resultados de forma **estructurada** (Nº, Título, URL limpia y Snippet descriptivo), respetando `max_results`.
+   - Por defecto (`"auto_fetch": "first"`) también **destila el contenido relevante** de la página del mejor resultado (`agent-browser read`), filtrando por los términos de la consulta, de modo que el modelo obtiene la respuesta en una sola llamada.
+   - Si la consulta es una URL (empieza con `http://` o `https://`), extrae y destila directamente el contenido de la página.
    - Limita estrictamente la longitud para no sobrecargar el contexto de modelos pequeños (4B-8B).
+   - **El modelo no necesita una herramienta `web_fetch` aparte:** una llamada a `web_search` cubre búsqueda y lectura.
 
 2. **`list_files(path)`**:
    - Lista archivos y carpetas del directorio indicado ordenados por tamaño.

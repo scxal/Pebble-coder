@@ -18,8 +18,9 @@
   },
   "web_search": {
     "enabled": true,
-    "description": "web_search(query) - Busca en la web usando agent-browser y retorna los resultados principales de forma concisa.",
+    "description": "web_search(query) - Busca en la web, devuelve resultados estructurados y destila el contenido de las paginas mas relevantes. Si el input es una URL, extrae directamente su contenido. El modelo no necesita web_fetch.",
     "timeout": 20,
-    "max_results": 4
+    "max_results": 4,
+    "auto_fetch": "first"
   }
 }

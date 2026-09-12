@@ -1,6 +1,40 @@
+import json
 import re
 from dataclasses import dataclass
 from typing import Optional
+from pathlib import Path
+
+
+# --- Translation loading ---
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_lang = "es"
+try:
+    _cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
+    _lang = (_cfg.get("language") or "es") if _cfg.get("language") in ("es", "en") else "es"
+except Exception:
+    pass
+
+_parser_es = {}
+try:
+    _parser_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text()).get("parser", {})
+except FileNotFoundError:
+    pass
+
+_parser_translations = {}
+try:
+    _parser_translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text()).get("parser", {})
+except FileNotFoundError:
+    _parser_translations = {}
+
+
+def t(key: str, **kwargs) -> str:
+    val = _parser_translations.get(key, _parser_es.get(key, ""))
+    if kwargs:
+        try:
+            val = val.format(**kwargs)
+        except (KeyError, IndexError, ValueError):
+            pass
+    return val
 
 
 @dataclass
@@ -23,7 +57,6 @@ def clean_markdown_delimiters(text: str) -> str:
 
 
 def parse_text_format(text: str) -> ParseResult:
-    # 1. Comprobar Final Answer
     final_match = re.search(
         r"(?:^|\n)\s*[*#\s]*Final\s*Answer[*#\s]*:[*#\s]*(.*)",
         text,
@@ -39,7 +72,6 @@ def parse_text_format(text: str) -> ParseResult:
         thought = clean_markdown_delimiters(thought_match.group(1).strip()) if thought_match else None
         return ParseResult(is_final=True, final_answer=final_text, thought=thought)
 
-    # 2. Extraer Thought
     thought_match = re.search(
         r"(?:^|\n)\s*[*#\s]*Thought[*#\s]*:[*#\s]*(.*?)(?=\n\s*[*#\s]*(?:Action|Input|Observation|Final\s*Answer)[*#\s]*:|$)",
         text,
@@ -47,19 +79,17 @@ def parse_text_format(text: str) -> ParseResult:
     )
     thought = clean_markdown_delimiters(thought_match.group(1).strip()) if thought_match else None
 
-    # 3. Extraer Action
     action_match = re.search(
         r"(?:^|\n)\s*[*#\s]*Action[*#\s]*:[*#\s]*([^\n\r]+)",
         text,
         re.IGNORECASE,
     )
     if not action_match:
-        return ParseResult(error="No Action or Final Answer found in model response.")
+        return ParseResult(error=t("missing_action_or_final_answer"))
 
     action_raw = action_match.group(1).strip()
     action = clean_markdown_delimiters(action_raw)
 
-    # 4. Extraer Input
     input_match = re.search(
         r"(?:^|\n)\s*[*#\s]*Input[*#\s]*:[*#\s]*(.*?)(?=\n\s*[*#\s]*Observation[*#\s]*:|$)",
         text,
@@ -77,7 +107,6 @@ def parse_text_format(text: str) -> ParseResult:
 
 
 def parse_xml_format(text: str) -> ParseResult:
-    # 1. Comprobar Final Answer
     final_match = re.search(
         r"<final_answer>(.*?)(?:</final_answer>|$)",
         text,
@@ -92,18 +121,15 @@ def parse_xml_format(text: str) -> ParseResult:
             thought=thought,
         )
 
-    # 2. Extraer Thought
     thought_match = re.search(r"<thought>(.*?)</thought>", text, re.IGNORECASE | re.DOTALL)
     thought = thought_match.group(1).strip() if thought_match else None
 
-    # 3. Extraer Action
     action_match = re.search(r"<action>(.*?)</action>", text, re.IGNORECASE | re.DOTALL)
     if not action_match:
-        return ParseResult(error="No <action> or <final_answer> found in model response.")
+        return ParseResult(error=t("missing_action_or_final_answer"))
 
     action = action_match.group(1).strip()
 
-    # 4. Extraer Input
     input_match = re.search(r"<input>(.*?)</input>", text, re.IGNORECASE | re.DOTALL)
     tool_input = input_match.group(1).strip() if input_match else ""
 
@@ -118,13 +144,12 @@ def parse_xml_format(text: str) -> ParseResult:
 def parse_llm_response(text: str, format_type: str = "text") -> ParseResult:
     text = (text or "").strip()
     if not text:
-        return ParseResult(error="Empty response received from LLM.")
+        return ParseResult(error=t("empty_response"))
 
     format_type = (format_type or "text").lower().strip()
 
     if format_type == "xml":
         res = parse_xml_format(text)
-        # Fallback a texto si el modelo respondio en formato texto
         if res.error and ("Action:" in text or "Final Answer:" in text):
             text_res = parse_text_format(text)
             if not text_res.error:
@@ -132,7 +157,6 @@ def parse_llm_response(text: str, format_type: str = "text") -> ParseResult:
         return res
     else:
         res = parse_text_format(text)
-        # Fallback a XML si el modelo respondio con etiquetas XML
         if res.error and ("<action>" in text or "<final_answer>" in text):
             xml_res = parse_xml_format(text)
             if not xml_res.error:
