@@ -1,0 +1,14 @@
+{
+  "model": "local",
+  "base_url": "http://127.0.0.1:8080/v1",
+  "api_key": "sandia-local-ai",
+  "temperature": 0.2,
+  "max_iterations": 20,
+  "timeout": 120,
+  "format": "text",
+  "debug": "off",
+  "thought": "on",
+  "observation": "off",
+  "system_prompt_file": "system_prompt.md",
+  "tools_file": "tools.json"
+}
