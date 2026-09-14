@@ -24,6 +24,10 @@
     "enabled": true,
     "confirm": false,
     "description": "web_search(query) - Busca informacion en la web sobre un tema usando Wikipedia y DuckDuckGo. Escribe la consulta en el mismo idioma del usuario. Si el input es una URL, extrae directamente el contenido de esa pagina.",
-    "timeout": 20
+    "timeout": 20,
+    "max_output_chars": 3000,
+    "max_wiki_results": 4,
+    "max_ddg_topics": 3,
+    "fetch_budget": 2400
   }
 }

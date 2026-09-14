@@ -9,7 +9,7 @@
   "format": "text",
   "debug": "off",
   "thought": "on",
-  "observation": "off",
+  "observation": "on",
   "system_prompt_file": "system_prompt.md",
   "tools_file": "tools.json"
 }

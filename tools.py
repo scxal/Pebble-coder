@@ -251,7 +251,7 @@ def _wiki_search(query: str, lang: str, limit: int = 4) -> list:
     return results
 
 
-def _ddg_abstract(query: str) -> Tuple[str, str, str, list]:
+def _ddg_abstract(query: str, max_topics: int = 3) -> Tuple[str, str, str, list]:
     """Instant Answer de DuckDuckGo (JSON via requests, sin navegador).
 
     Devuelve (abstract, fuente, url, temas_relacionados).
@@ -271,7 +271,7 @@ def _ddg_abstract(query: str) -> Tuple[str, str, str, list]:
         if first and text and "duckduckgo.com/c/" not in first:
             topics.append({"title": text.split(" - ")[0][:80], "snippet": text, "url": first})
     abstract = (d.get("Abstract") or "").strip()
-    return abstract, d.get("AbstractSource") or "", d.get("AbstractURL") or "", topics[:3]
+    return abstract, d.get("AbstractSource") or "", d.get("AbstractURL") or "", topics[:max_topics]
 
 
 def _query_keywords(query: str) -> list:
@@ -307,7 +307,9 @@ def _distill_page(bin_path: str, url: str, keywords: list, timeout: int, budget:
     return _relevance_filter(out, keywords, budget)
 
 
-def web_search(query: str, timeout: int = 20) -> str:
+def web_search(query: str, timeout: int = 20, max_output_chars: int = MAX_OUTPUT_CHARS,
+               max_wiki_results: int = 4, max_ddg_topics: int = 3,
+               fetch_budget: int = 2400) -> str:
     query = query.strip().strip("'\"")
     if not query:
         return t("search_query_empty")
@@ -319,7 +321,7 @@ def web_search(query: str, timeout: int = 20) -> str:
             return t("browser_not_installed")
 
         keywords = _query_keywords(query)
-        fetch_budget = min(2400, MAX_OUTPUT_CHARS)
+        fetch_budget = min(fetch_budget, max_output_chars)
 
         distilled = _distill_page(bin_path, query, keywords, timeout, fetch_budget)
         if distilled:
@@ -327,8 +329,8 @@ def web_search(query: str, timeout: int = 20) -> str:
         if _run_browser(bin_path, ["open", query, "--timeout", str(timeout * 1000)], timeout + 5):
             text = _browser_get_text(bin_path, "main", timeout)
             if text:
-                if len(text) > MAX_OUTPUT_CHARS:
-                    text = text[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
+                if len(text) > max_output_chars:
+                    text = text[:max_output_chars] + t('truncated_chars').format(chars=max_output_chars)
                 return t("search_result_header").format(query=query, text=text)
         return t("open_url_failed")
 
@@ -336,7 +338,7 @@ def web_search(query: str, timeout: int = 20) -> str:
 
     # 1) Instant Answer de DuckDuckGo (JSON via requests, sin navegador).
     try:
-        abstract, source, url, topics = _ddg_abstract(query)
+        abstract, source, url, topics = _ddg_abstract(query, max_ddg_topics)
         if abstract:
             block = t("web_abstract_header").format(source=source or "DuckDuckGo") + "\n" + abstract
             if url:
@@ -350,7 +352,7 @@ def web_search(query: str, timeout: int = 20) -> str:
     # 2) Wikipedia en el idioma configurado (config.json: language).
     wiki_lang = _lang if _lang in ("es", "en") else "en"
     try:
-        hits = _wiki_search(query, wiki_lang)
+        hits = _wiki_search(query, wiki_lang, max_wiki_results)
         if hits:
             lines = [f"{i}. {h['title']} — {h['snippet']}\n   {h['url']}" for i, h in enumerate(hits, 1)]
             parts.append(t("web_results_header").format(source=f"{wiki_lang}.wikipedia.org") + "\n" + "\n".join(lines))
@@ -361,8 +363,8 @@ def web_search(query: str, timeout: int = 20) -> str:
         return t("web_no_results").format(query=query)
 
     text = t("search_header").format(query=query) + "\n\n" + "\n\n".join(parts)
-    if len(text) > MAX_OUTPUT_CHARS:
-        text = text[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
+    if len(text) > max_output_chars:
+        text = text[:max_output_chars] + t('truncated_chars').format(chars=max_output_chars)
     return text
 
 
@@ -442,7 +444,9 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
             "read_file": {"enabled": True, "confirm": False},
             "write_file": {"enabled": True, "confirm": True},
             "run_command": {"enabled": True, "timeout": 30, "confirm": True},
-            "web_search": {"enabled": True, "timeout": 20, "confirm": False},
+            "web_search": {"enabled": True, "timeout": 20, "confirm": False,
+                           "max_output_chars": MAX_OUTPUT_CHARS, "max_wiki_results": 4,
+                           "max_ddg_topics": 3, "fetch_budget": 2400},
         }
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -477,6 +481,13 @@ def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> s
         return run_command(clean_input, timeout=timeout)
 
     elif action == "web_search":
-        return web_search(clean_input, timeout=tool_cfg.get("timeout", 20))
+        return web_search(
+            clean_input,
+            timeout=tool_cfg.get("timeout", 20),
+            max_output_chars=tool_cfg.get("max_output_chars", MAX_OUTPUT_CHARS),
+            max_wiki_results=tool_cfg.get("max_wiki_results", 4),
+            max_ddg_topics=tool_cfg.get("max_ddg_topics", 3),
+            fetch_budget=tool_cfg.get("fetch_budget", 2400),
+        )
 
     return f"ERROR: Tool '{action}' execution handler not found."

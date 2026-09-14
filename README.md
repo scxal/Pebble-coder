@@ -222,14 +222,22 @@ To prevent the screen from flooding with unnecessary data:
     "enabled": true,
     "confirm": false,
     "description": "web_search(query) - Searches the web for information on a topic using Wikipedia and DuckDuckGo. Write the query in the same language as the user. If the input is a URL, it directly extracts the content of that page.",
-    "timeout": 20
+    "timeout": 20,
+    "max_output_chars": 3000,
+    "max_wiki_results": 4,
+    "max_ddg_topics": 3,
+    "fetch_budget": 2400
   }
 }
 ```
 
 - **To disable a tool:** Change `"enabled": false`. The model will not be able to invoke it.
 - **To request user confirmation:** Change `"confirm": true`. Before executing the tool, the agent shows a Yes/No menu (`Esc`, `q`, or `Ctrl+C` deny).
-- **`web_search`:** `"timeout"` controls the request seconds (search and URL reading).
+- **`web_search`:** `"timeout"` controls the request seconds (search and URL reading). The optional keys below cap result sizes so small models are not flooded (the system prompt and tool description tell the model to query in the user's language):
+  - `"max_output_chars"`: max characters of the assembled result (default `3000`).
+  - `"max_wiki_results"`: max Wikipedia hits (default `4`).
+  - `"max_ddg_topics"`: max DuckDuckGo related-topics shown (default `3`).
+  - `"fetch_budget"`: max characters distilled from a direct URL (default `2400`, capped by `max_output_chars`).
 
 ---
 
