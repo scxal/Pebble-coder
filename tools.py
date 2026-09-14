@@ -460,11 +460,11 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
     config_path = Path(path)
     if not config_path.exists():
         return {
-            "list_files": {"enabled": True},
-            "read_file": {"enabled": True},
-            "write_file": {"enabled": True},
-            "run_command": {"enabled": True, "timeout": 30},
-            "web_search": {"enabled": True, "timeout": 20, "max_results": 4, "auto_fetch": "first"},
+            "list_files": {"enabled": True, "confirm": False},
+            "read_file": {"enabled": True, "confirm": False},
+            "write_file": {"enabled": True, "confirm": True},
+            "run_command": {"enabled": True, "timeout": 30, "confirm": True},
+            "web_search": {"enabled": True, "timeout": 20, "max_results": 4, "auto_fetch": "first", "confirm": False},
         }
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)

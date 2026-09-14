@@ -1,0 +1,6 @@
+{
+  "commands": {
+    "/settings": "cmd_settings",
+    "/exit": "cmd_exit"
+  }
+}

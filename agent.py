@@ -5,7 +5,7 @@ import readline
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 import requests
 
@@ -40,31 +40,39 @@ def bold(text: str) -> str:
 
 from parser import parse_llm_response, ParseResult
 from tools import execute_tool, load_tools_config, parse_write_file_args
+from menu import MenuItem, command_input, confirm, run_menu
 
 
 # --- Translation loading ---
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _lang = "es"
-try:
-    _cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
-    _lang = (_cfg.get("language") or "es") if _cfg.get("language") in ("es", "en") else "es"
-except Exception:
-    pass
-
 _t_es = {}
-try:
-    _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text())
-except FileNotFoundError:
-    pass
-
 _translations = {}
-try:
-    _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text())
-except FileNotFoundError:
-    _translations = {}
+_ui = {}
+_parser = {}
 
-_ui = _translations.get("ui", {})
-_parser = _translations.get("parser", {})
+
+def reload_translations() -> None:
+    """(Re)carga el idioma desde config.json y refresca las traducciones."""
+    global _lang, _t_es, _translations, _ui, _parser
+    try:
+        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
+        _lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
+    except Exception:
+        pass
+    try:
+        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text())
+    except FileNotFoundError:
+        _t_es = {}
+    try:
+        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text())
+    except FileNotFoundError:
+        _translations = {}
+    _ui = _translations.get("ui", {})
+    _parser = _translations.get("parser", {})
+
+
+reload_translations()
 
 
 def t(key: str, **kwargs) -> str:
@@ -84,14 +92,6 @@ def is_enabled(config: Dict[str, Any], key: str, default: bool = False) -> bool:
     if isinstance(val, str):
         return val.strip().lower() in ("on", "true", "yes", "1", "enabled")
     return bool(val)
-
-
-def confirm_execution(action: str, preview: str) -> bool:
-    """Pide confirmacion al usuario para acciones sensibles; True si se permite."""
-    print(yellow(t("tool_confirm_header").format(action=action)))
-    print(f"  {preview}")
-    ans = input(t("tool_confirm_yn")).strip().lower()
-    return ans in ("y", "yes", "s", "si", "sí", "allow", "permitir", "1", "true", "", "on")
 
 
 def load_config(config_path: str = "config.json") -> Dict[str, Any]:
@@ -411,14 +411,6 @@ def stream_llm(messages: List[Dict[str, str]], config: Dict[str, Any], label=Non
     return full, header_shown
 
 
-def confirm_execution(action: str, preview: str) -> bool:
-    """Pide confirmacion al usuario antes de ejecutar acciones sensibles."""
-    print(yellow(t("tool_confirm_header").format(action=action)))
-    print(f"  {preview}")
-    answer = input(t("tool_confirm_yn")).strip().lower()
-    return answer in ("", "y", "yes", "s", "si", "sí", "1", "allow", "permitir", "permitido")
-
-
 def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any]) -> str:
     system_prompt = load_system_prompt(config)
     format_type = config.get("format", "text").lower()
@@ -492,23 +484,22 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
             print(red(t('tool_disabled_error').format(action=action)))
             return t('tool_disabled_terminated').format(action=action)
 
-        # Confirm sensitive actions before executing them
-        observation = None
-        if action in ("write_file", "run_command"):
+        # Confirmacion previa si la herramienta lo pide (tools.json: "confirm")
+        if tool_cfg.get("confirm", False):
             if action == "write_file":
                 preview_path, _ = parse_write_file_args(tool_input)
                 preview = preview_path or tool_input
             else:
                 preview = tool_input
-            if not confirm_execution(action, preview):
-                observation = t('tool_denied_observation').format(action=action)
-                print(red(observation))
-            else:
-                try:
-                    observation = execute_tool(action, tool_input, tools_config)
-                except Exception as exc:
-                    print(red(t('critical_error').format(exc=exc)))
-                    return t('critical_terminated').format(exc=exc)
+            print(yellow(t("tool_confirm_header").format(action=action)))
+            print(f"  {preview}")
+            allowed = confirm(t("tool_confirm_question"))
+        else:
+            allowed = True
+
+        if not allowed:
+            observation = t('tool_denied_observation').format(action=action)
+            print(red(observation))
         else:
             try:
                 observation = execute_tool(action, tool_input, tools_config)
@@ -534,6 +525,123 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
     msg = t("max_iterations_message").format(max=max_iterations)
     print(f"\n{yellow(t('max_iterations_warning'))} {msg}")
     return msg
+
+
+def save_config(config: Dict[str, Any]) -> None:
+    """Guarda la configuracion en config.json preservando el orden de claves."""
+    with open(_SCRIPT_DIR / "config.json", "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def _validate_temperature(raw: str) -> float:
+    val = float(raw)
+    if not (0.0 <= val <= 2.0):
+        raise ValueError(raw)
+    return val
+
+
+def _validate_positive_int(raw: str) -> int:
+    val = int(raw)
+    if val < 1:
+        raise ValueError(raw)
+    return val
+
+
+def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
+    """Construye los items del menu /settings a partir de config.json."""
+
+    def setter(key: str, after=None):
+        def _set(new_value):
+            config[key] = new_value
+            save_config(config)
+            if after:
+                after(new_value)
+        return _set
+
+    return [
+        MenuItem(
+            t("label_language"), "choice",
+            value=config.get("language", "es"), choices=["es", "en"],
+            on_change=setter("language", after=lambda _v: reload_translations()),
+        ),
+        MenuItem(t("label_model"), "text",
+                 value=config.get("model", ""), on_change=setter("model")),
+        MenuItem(t("label_base_url"), "text",
+                 value=config.get("base_url", ""), on_change=setter("base_url")),
+        MenuItem(t("label_api_key"), "text",
+                 value=config.get("api_key", ""), on_change=setter("api_key")),
+        MenuItem(t("label_temperature"), "text",
+                 value=config.get("temperature", 0.2),
+                 validate=_validate_temperature, on_change=setter("temperature")),
+        MenuItem(t("label_max_iterations"), "text",
+                 value=config.get("max_iterations", 10),
+                 validate=_validate_positive_int, on_change=setter("max_iterations")),
+        MenuItem(t("label_timeout"), "text",
+                 value=config.get("timeout", 30),
+                 validate=_validate_positive_int, on_change=setter("timeout")),
+        MenuItem(t("label_format"), "choice",
+                 value=config.get("format", "text"), choices=["text", "xml"],
+                 on_change=setter("format")),
+        MenuItem(t("label_debug"), "toggle",
+                 value=config.get("debug", "off"), on_change=setter("debug")),
+        MenuItem(t("label_thought"), "toggle",
+                 value=config.get("thought", "off"), on_change=setter("thought")),
+        MenuItem(t("label_observation"), "toggle",
+                 value=config.get("observation", "off"), on_change=setter("observation")),
+        MenuItem(t("label_system_prompt_file"), "text",
+                 value=config.get("system_prompt_file", "system_prompt.md"),
+                 on_change=setter("system_prompt_file")),
+        MenuItem(t("label_tools_file"), "text",
+                 value=config.get("tools_file", "tools.json"),
+                 on_change=setter("tools_file")),
+    ]
+
+
+def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Menu interactivo de configuracion. Devuelve tools_config (recargado si cambia)."""
+    original_tools_file = config.get("tools_file", "tools.json")
+    run_menu(t("menu_title_settings"), build_settings_items(config))
+    if config.get("tools_file", "tools.json") != original_tools_file:
+        tools_file = config.get("tools_file", "tools.json")
+        if not Path(tools_file).is_absolute():
+            tools_file = str(_SCRIPT_DIR / tools_file)
+        tools_config = load_tools_config(tools_file)
+    print(t("menu_closed"))
+    return tools_config
+
+
+COMMANDS = {
+    "/settings": cmd_settings,
+}
+
+EXIT_COMMANDS = ("/exit", "/quit")
+
+
+def load_commands(path: str = "commands.json") -> List[Tuple[str, str]]:
+    """Carga los comandos del fichero con su descripcion traducida."""
+    cmd_path = Path(path)
+    if not cmd_path.is_absolute():
+        cmd_path = _SCRIPT_DIR / cmd_path
+    entries: Dict[str, str] = {}
+    if cmd_path.exists():
+        try:
+            entries = json.loads(cmd_path.read_text()).get("commands", {})
+        except (json.JSONDecodeError, OSError, AttributeError):
+            entries = {}
+    if not entries:
+        entries = {"/settings": "cmd_settings", "/exit": "cmd_exit"}
+    return [(name, t(key)) for name, key in entries.items()]
+
+
+def handle_command(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Ejecuta un comando '/xxx'. Devuelve tools_config (puede recargarse)."""
+    cmd = user_input.strip().split()[0].lower()
+    handler = COMMANDS.get(cmd)
+    if handler is None:
+        print(red(t("unknown_command").format(cmd=cmd, commands=", ".join(list(COMMANDS) + list(EXIT_COMMANDS)))))
+        return tools_config
+    return handler(config, tools_config)
 
 
 def main():
@@ -595,9 +703,13 @@ def main():
     print(t("exit_prompt"))
     print("-" * 60)
 
+    commands = load_commands()
+    command_names = [name for name, _ in commands]
+    command_descs = [desc for _, desc in commands]
+
     while True:
         try:
-            user_input = input(t("prompt")).strip()
+            user_input = command_input(t("prompt"), command_names, command_descs).strip()
         except (KeyboardInterrupt, EOFError):
             print(t("exit_message"))
             break
@@ -605,9 +717,13 @@ def main():
         if not user_input:
             continue
 
-        if user_input.lower() in ("exit", "quit"):
+        if user_input.lower() in EXIT_COMMANDS:
             print(t("exit_message"))
             break
+
+        if user_input.startswith("/"):
+            tools_config = handle_command(user_input, config, tools_config)
+            continue
 
         run_react_agent(user_input, config, tools_config)
 

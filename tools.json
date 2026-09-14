@@ -1,23 +1,28 @@
 {
   "list_files": {
     "enabled": true,
+    "confirm": false,
     "description": "list_files(path) - Lista archivos y directorios en el path especificado (por defecto '.')."
   },
   "read_file": {
     "enabled": true,
+    "confirm": false,
     "description": "read_file(path) - Lee el contenido de texto de un archivo."
   },
   "write_file": {
     "enabled": true,
+    "confirm": true,
     "description": "write_file(path, content) - Sobrescribe o crea un archivo con el contenido especificado."
   },
   "run_command": {
     "enabled": true,
+    "confirm": true,
     "description": "run_command(command) - Ejecuta comandos shell del sistema con captura de stdout y stderr.",
     "timeout": 30
   },
   "web_search": {
     "enabled": true,
+    "confirm": false,
     "description": "web_search(query) - Busca en la web, devuelve resultados estructurados y destila el contenido de las paginas mas relevantes. Si el input es una URL, extrae directamente su contenido. El modelo no necesita web_fetch.",
     "timeout": 20,
     "max_results": 4,

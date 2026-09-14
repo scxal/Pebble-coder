@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+"""Motor de menu interactivo generico para Pebble-Coder.
+
+Menu reutilizable en la terminal: flechas o numeros (1-9) para seleccionar,
+Enter para editar/activar, q/Esc para salir. Tipos de item:
+
+- "toggle": valor on/off que se alterna con Enter
+- "choice": cicla entre los valores de `choices` con Enter
+- "text":   pide un valor por teclado (con `validate(raw) -> valor` opcional)
+- "action": ejecuta `on_action()` con Enter y cierra el menu
+
+El motor es solo UI: el llamador posee los datos (etiquetas, valores,
+callbacks). Pensado para /settings hoy y /skill, /agent, etc. manana.
+"""
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any, Callable, List, Optional
+
+try:
+    import select
+    import termios
+    import tty
+
+    _HAS_TTY = True
+except ImportError:
+    _HAS_TTY = False
+
+
+# --- Colores ---
+def c(text: str, code: str) -> str:
+    return f"\033[{code}m{text}\033[0m"
+
+
+def green(text: str) -> str:
+    return c(text, "38;5;40")
+
+
+def cyan(text: str) -> str:
+    return c(text, "36")
+
+
+def yellow(text: str) -> str:
+    return c(text, "33;1")
+
+
+def red(text: str) -> str:
+    return c(text, "31;1")
+
+
+def bold(text: str) -> str:
+    return c(text, "1")
+
+
+def dim(text: str) -> str:
+    return c(text, "90")
+
+
+# --- Traducciones (seccion "menu") ---
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_lang = "es"
+_t_es = {}
+_translations = {}
+_menu_t = {}
+
+
+def load_translations() -> None:
+    global _lang, _t_es, _translations, _menu_t
+    try:
+        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
+        _lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
+    except Exception:
+        pass
+    try:
+        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text())
+    except FileNotFoundError:
+        _t_es = {}
+    try:
+        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text())
+    except FileNotFoundError:
+        _translations = {}
+    _menu_t = _translations.get("menu", {})
+
+
+load_translations()
+
+
+def t(key: str, **kwargs) -> str:
+    val = _menu_t.get(key, _t_es.get("menu", {}).get(key, ""))
+    if kwargs:
+        try:
+            val = val.format(**kwargs)
+        except (KeyError, IndexError):
+            pass
+    return val
+
+
+class MenuItem:
+    """Fila del menu: etiqueta, tipo, valor actual y callbacks."""
+
+    def __init__(
+        self,
+        label: str,
+        kind: str = "text",
+        value: Any = None,
+        choices: Optional[List[Any]] = None,
+        validate: Optional[Callable[[str], Any]] = None,
+        on_change: Optional[Callable[[Any], None]] = None,
+        on_action: Optional[Callable[[], None]] = None,
+    ):
+        self.label = label
+        self.kind = kind
+        self.value = value
+        self.choices = choices if choices is not None else []
+        self.validate = validate
+        self.on_change = on_change
+        self.on_action = on_action
+
+    def is_on(self) -> bool:
+        return str(self.value).strip().lower() in ("on", "true", "yes", "1")
+
+    def value_text(self, plain: bool = False) -> str:
+        if self.kind == "toggle":
+            if plain:
+                return "on" if self.is_on() else "off"
+            return green("[on]") if self.is_on() else dim("[off]")
+        return str(self.value)
+
+    def flip(self) -> Any:
+        self.value = "off" if self.is_on() else "on"
+        return self.value
+
+    def cycle(self) -> Any:
+        if not self.choices:
+            return self.value
+        try:
+            idx = self.choices.index(self.value)
+        except ValueError:
+            idx = -1
+        self.value = self.choices[(idx + 1) % len(self.choices)]
+        return self.value
+
+
+_CANCELLED = object()
+_INVALID = object()
+_KEY_TIMEOUT = 0.05
+
+
+def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
+    """Lee una tecla del fd crudo: up/down/enter/quit/esc/backspace/tab/unknown o el caracter."""
+    try:
+        data = os.read(fd, 1)
+    except OSError:
+        return "quit"
+    if not data or data == b"\x04":
+        return "quit"
+    ch = data.decode("utf-8", errors="replace")
+    if ch == "\x1b":
+        pending, _, _ = select.select([sys.stdin], [], [], _KEY_TIMEOUT)
+        if not pending:
+            return "esc"
+        if os.read(fd, 1).decode("utf-8", errors="replace") != "[":
+            return "esc"
+        pending, _, _ = select.select([sys.stdin], [], [], _KEY_TIMEOUT)
+        if not pending:
+            return "esc"
+        final = os.read(fd, 1).decode("utf-8", errors="replace")
+        if final == "A":
+            return "up"
+        if final == "B":
+            return "down"
+        return "unknown"
+    if ch in ("\r", "\n"):
+        return "enter"
+    if ch in quit_chars:
+        return "quit"
+    if ch == "\x7f":
+        return "backspace"
+    if ch == "\t":
+        return "tab"
+    return ch
+
+
+def _edit_value(item: MenuItem) -> Any:
+    """Pide un nuevo valor en modo canonico. Devuelve _CANCELLED o _INVALID si no hay cambio."""
+    if _HAS_TTY:
+        try:
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+        except Exception:
+            pass
+    sys.stdout.write("\033[?25h")
+    sys.stdout.write(t("menu_edit_prompt").format(label=item.label))
+    sys.stdout.flush()
+    try:
+        raw = input()
+    except (KeyboardInterrupt, EOFError):
+        sys.stdout.write("\r\033[2K\n")
+        sys.stdout.flush()
+        return _CANCELLED
+    raw = raw.strip()
+    if not raw:
+        return _CANCELLED
+    if item.validate:
+        try:
+            return item.validate(raw)
+        except (ValueError, TypeError):
+            return _INVALID
+    return raw
+
+
+def render_row(item: MenuItem, selected: bool, number: int) -> str:
+    if item.kind == "action":
+        if selected:
+            return c(f" ❯ {number:>2}. {item.label}", "7")
+        return f"   {number:>2}. {item.label}"
+    if selected:
+        return c(f" ❯ {number:>2}. {item.label}: {item.value_text(plain=True)}", "7")
+    return f"   {number:>2}. {item.label}: {item.value_text()}"
+
+
+def run_menu(title: str, items: List[MenuItem], hint: Optional[str] = None) -> None:
+    """Muestra el menu interactivo hasta que el usuario sale con q/Esc.
+
+    Los cambios se aplican al vuelo con on_change (on_action cierra el menu).
+    """
+    if not items:
+        return
+
+    if not _HAS_TTY or not sys.stdin.isatty():
+        _run_menu_fallback(title, items, hint)
+        return
+
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+    sel = 0
+    status = ""
+    extra_lines = 0
+    total = len(items) + 3  # titulo + hint + items + status
+
+    def render(first: bool = False) -> None:
+        nonlocal extra_lines
+        lines = [bold(cyan(title)), dim(hint if hint is not None else t("menu_hint"))]
+        for i, item in enumerate(items):
+            lines.append(render_row(item, i == sel, i + 1))
+        lines.append(status)
+        if not first:
+            sys.stdout.write(f"\033[{total + extra_lines}A\r")
+        for ln in lines:
+            sys.stdout.write("\033[K" + ln + "\n")
+        sys.stdout.write("\033[K")
+        sys.stdout.flush()
+        extra_lines = 0
+
+    try:
+        tty.setcbreak(fd)
+        sys.stdout.write("\033[?25l")
+        render(first=True)
+        while True:
+            key = _read_key(fd)
+
+            if key in ("quit", "esc"):
+                break
+
+            if key == "up":
+                sel = (sel - 1) % len(items)
+                status = ""
+            elif key == "down":
+                sel = (sel + 1) % len(items)
+                status = ""
+            elif key.isdigit() and key != "0" and int(key) <= len(items):
+                sel = int(key) - 1
+                status = ""
+            elif key == "enter":
+                item = items[sel]
+                if item.kind == "toggle":
+                    new_value = item.flip()
+                    if item.on_change:
+                        item.on_change(new_value)
+                    status = green("✓ " + t("menu_value_updated").format(label=item.label, value=new_value))
+                elif item.kind == "choice":
+                    new_value = item.cycle()
+                    if item.on_change:
+                        item.on_change(new_value)
+                    status = green("✓ " + t("menu_value_updated").format(label=item.label, value=new_value))
+                elif item.kind == "action":
+                    if item.on_action:
+                        item.on_action()
+                    return
+                else:
+                    # Editar en modo canonico (con eco) y volver a crudo despues.
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+                    try:
+                        new_value = _edit_value(item)
+                    finally:
+                        tty.setcbreak(fd)
+                        sys.stdout.write("\033[?25l")
+                        sys.stdout.flush()
+                    extra_lines += 1
+                    if new_value is _CANCELLED:
+                        status = dim(t("menu_edit_cancelled"))
+                    elif new_value is _INVALID:
+                        status = red(t("menu_invalid_value"))
+                    else:
+                        item.value = new_value
+                        if item.on_change:
+                            item.on_change(new_value)
+                        status = green("✓ " + t("menu_value_updated").format(label=item.label, value=new_value))
+            else:
+                continue
+
+            render()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
+
+
+def confirm(title: str, yes_label: Optional[str] = None, no_label: Optional[str] = None) -> bool:
+    """Pregunta si/no usando el menu. Devuelve True solo si el usuario elige Si.
+
+    Esc, q o Ctrl+C deniegan (respuesta segura por defecto).
+    """
+    result = {"allowed": False}
+    items = [
+        MenuItem(yes_label or t("confirm_yes"), "action",
+                 on_action=lambda: result.update(allowed=True)),
+        MenuItem(no_label or t("confirm_no"), "action",
+                 on_action=lambda: result.update(allowed=False)),
+    ]
+    run_menu(title, items, hint=t("menu_hint_confirm"))
+    return result["allowed"]
+
+
+_POPUP_MAX = 8
+
+
+def _terminal_width() -> int:
+    try:
+        cols = os.get_terminal_size(sys.stdin.fileno()).columns
+        if cols > 0:
+            return cols
+    except (OSError, ValueError):
+        pass
+    return 80
+
+
+def command_input(prompt: str, commands: List[str], descriptions: Optional[List[str]] = None) -> str:
+    """Linea de input con autocompletado de comandos.
+
+    Al escribir '/' muestra la lista de comandos y filtra mientras se escribe.
+    ↑/↓ eligen, Enter ejecuta el comando resaltado (o el texto tal cual si no
+    hay lista), Tab completa, Esc abre/cierra la lista. Ctrl+C/Ctrl+D se
+    propagan al llamador (salida del programa).
+    """
+    if not _HAS_TTY or not sys.stdin.isatty():
+        return input(prompt)
+
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+    desc_list = descriptions if descriptions is not None else [""] * len(commands)
+    buffer = ""
+    sel = 0
+    show_popup = True
+    prev_rows = 0
+    prev_popup = 0
+
+    def matched() -> List[str]:
+        if not buffer.startswith("/"):
+            return []
+        low = buffer.lower()
+        return [c for c in commands if c.lower().startswith(low)]
+
+    def redraw(first: bool = False) -> None:
+        nonlocal prev_rows, prev_popup
+        shown = matched()[:_POPUP_MAX] if show_popup else []
+        width = _terminal_width()
+        in_rows = max(1, -(-(len(prompt) + len(buffer)) // width))
+        p_rows = in_rows + (len(shown) + 1 if shown else 0)
+
+        if not first:
+            sys.stdout.write(f"\033[{prev_rows}A\r")
+            for _ in range(prev_rows):
+                sys.stdout.write("\033[K\n")
+            sys.stdout.write(f"\033[{prev_rows}A")
+        else:
+            sys.stdout.write("\033[?25l")
+
+        sys.stdout.write("\033[K" + prompt + buffer + "\n")
+        for i, cmd in enumerate(shown):
+            idx = commands.index(cmd)
+            desc = desc_list[idx] if idx < len(desc_list) else ""
+            row = cmd if not desc else f"{cmd} — {desc}"
+            if i == sel:
+                sys.stdout.write("\033[K" + c(" ❯ " + row, "7") + "\n")
+            else:
+                sys.stdout.write("\033[K   " + row + "\n")
+        if shown:
+            sys.stdout.write("\033[K" + dim(t("command_hint")) + "\n")
+        sys.stdout.flush()
+        prev_rows = p_rows
+        prev_popup = len(shown) + 1 if shown else 0
+
+    try:
+        tty.setcbreak(fd)
+        redraw(first=True)
+        while True:
+            key = _read_key(fd, quit_chars=())
+
+            if key == "quit":
+                raise EOFError
+            if key == "enter":
+                if show_popup and buffer.startswith("/"):
+                    options = matched()
+                    if options:
+                        buffer = options[min(sel, len(options) - 1)]
+                break
+            if key == "up":
+                options = matched()
+                if options and show_popup:
+                    sel = (sel - 1) % len(options)
+            elif key == "down":
+                options = matched()
+                if options and show_popup:
+                    sel = (sel + 1) % len(options)
+            elif key == "esc":
+                show_popup = not show_popup
+            elif key == "tab":
+                options = matched()
+                if options and show_popup:
+                    buffer = options[min(sel, len(options) - 1)]
+            elif key == "backspace":
+                if buffer:
+                    buffer = buffer[:-1]
+                sel = 0
+                show_popup = True
+            elif len(key) == 1 and key >= " ":
+                buffer += key
+                sel = 0
+                show_popup = True
+            else:
+                continue
+
+            options = matched()
+            if sel >= len(options):
+                sel = max(0, len(options) - 1)
+            redraw()
+
+        return buffer
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+        sys.stdout.write("\033[?25h")
+        if prev_popup:
+            sys.stdout.write(f"\033[{prev_popup}A\r")
+            for _ in range(prev_popup):
+                sys.stdout.write("\033[K\n")
+        sys.stdout.flush()
+
+
+def _run_menu_fallback(title: str, items: List[MenuItem], hint: Optional[str] = None) -> None:
+    """Fallback sin termios: seleccion numerica por linea."""
+    print(yellow(t("menu_fallback_warning")))
+    while True:
+        print(f"\n{bold(cyan(title))}")
+        for i, item in enumerate(items, 1):
+            print(render_row(item, False, i))
+        raw = input(t("menu_fallback_prompt").format(max=len(items))).strip().lower()
+        if raw in ("", "q", "quit", "exit"):
+            return
+        if not raw.isdigit() or not (1 <= int(raw) <= len(items)):
+            continue
+        item = items[int(raw) - 1]
+        if item.kind == "toggle":
+            new_value = item.flip()
+            if item.on_change:
+                item.on_change(new_value)
+        elif item.kind == "choice":
+            new_value = item.cycle()
+            if item.on_change:
+                item.on_change(new_value)
+        elif item.kind == "action":
+            if item.on_action:
+                item.on_action()
+            return
+        else:
+            new_value = _edit_value(item)
+            if new_value not in (_CANCELLED, _INVALID):
+                item.value = new_value
+                if item.on_change:
+                    item.on_change(new_value)
