@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import re
@@ -7,6 +8,8 @@ import time
 import urllib.parse
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
+
+import requests
 
 
 # --- Translation loading ---
@@ -228,82 +231,53 @@ _STOPWORDS = {
     "know", "search", "give", "please",
 }
 
-# JS que extrae resultados estructurados de Bing (titulo, URL limpia, snippet).
-_EXTRACT_JS = r"""(function(){
-  // Bing envuelve cada resultado en un redirect /ck/a?...&u=a1<base64>. Aqui se
-  // resuelve la URL real (base64 en el parametro 'u=a1').
-  function cleanUrl(h){
-    if(!/^https?:/i.test(h)) return '';
-    var u;
-    try{ u = new URL(h); }catch(e){ return ''; }
-    if(/bing\.com$|microsoft/i.test(u.hostname)){
-      var m = h.match(/[?&]u=a1([A-Za-z0-9_\-]+)/);
-      if(!m) return '';
-      var b64 = m[1].replace(/-/g,'+').replace(/_/g,'/');
-      while(b64.length % 4) b64 += '=';
-      try{
-        var raw = atob(b64);
-        var bytes = new Uint8Array(raw.length);
-        for(var j=0;j<raw.length;j++) bytes[j] = raw.charCodeAt(j)&0xff;
-        var dec = new TextDecoder().decode(bytes);
-        return /^https?:/i.test(dec) ? dec : '';
-      }catch(e){ return ''; }
-    }
-    return u.href;
-  }
-  function textOf(el){ return el ? (el.textContent||'').trim() : ''; }
-  var items = document.querySelectorAll('#b_results > li.b_algo');
-  if(!items.length){ items = document.querySelectorAll('li'); }
-  var all = Array.prototype.slice.call(items, 0, 60);
-  var seen = {}, out = [];
-  for(var i=0;i<all.length && out.length<10;i++){
-    var li = all[i];
-    var a = li.querySelector('h2 a') || li.querySelector('h3 a') || li.querySelector('a');
-    var url = a ? cleanUrl(a.href) : '';
-    if(!url || seen[url]) continue; seen[url] = 1;
-    var title = textOf(a);
-    if(title.length < 3) continue;
-    var snip = textOf(li.querySelector('.b_caption p') || li.querySelector('.b_lineclamp2, .b_lineclamp3, .b_lineclamp4') || li);
-    out.push({t:title, u:url, s:snip.slice(0,280)});
-  }
-  return JSON.stringify(out);
-})()"""
+# APIs de busqueda: Wikipedia (idioma de config.json) y DuckDuckGo Instant Answers.
+def _wiki_search(query: str, lang: str, limit: int = 4) -> list:
+    """Busca en la API de Wikipedia y devuelve titulos, snippets y URLs."""
+    r = requests.get(
+        f"https://{lang}.wikipedia.org/w/api.php",
+        params={"action": "query", "list": "search", "srsearch": query, "srlimit": limit, "format": "json", "utf8": 1},
+        headers={"User-Agent": "pebble-coder/1.0 (local ReAct agent)"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    hits = r.json().get("query", {}).get("search", [])
+    results = []
+    for h in hits:
+        title = html.unescape(h.get("title", ""))
+        snippet = html.unescape(re.sub(r"<[^>]+>", "", h.get("snippet", "")))
+        url = f"https://{lang}.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}"
+        results.append({"title": title, "snippet": snippet, "url": url})
+    return results
+
+
+def _ddg_abstract(query: str) -> Tuple[str, str, str, list]:
+    """Instant Answer de DuckDuckGo (JSON via requests, sin navegador).
+
+    Devuelve (abstract, fuente, url, temas_relacionados).
+    """
+    r = requests.get(
+        "https://api.duckduckgo.com/",
+        params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+        headers={"User-Agent": "pebble-coder/1.0 (local ReAct agent)"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    d = r.json()
+    topics = []
+    for rt in d.get("RelatedTopics", []):
+        first = rt.get("FirstURL") or ""
+        text = rt.get("Text") or ""
+        if first and text and "duckduckgo.com/c/" not in first:
+            topics.append({"title": text.split(" - ")[0][:80], "snippet": text, "url": first})
+    abstract = (d.get("Abstract") or "").strip()
+    return abstract, d.get("AbstractSource") or "", d.get("AbstractURL") or "", topics[:3]
 
 
 def _query_keywords(query: str) -> list:
     """Extrae los terminos significativos de la consulta para filtrar relevancia."""
     words = re.findall(r"[a-záéíóúñü0-9]+", query.lower())
     return [w for w in words if len(w) > 2 and w not in _STOPWORDS][:8]
-
-
-def _extract_results(bin_path: str, query: str, timeout: int) -> list:
-    """Abre Bing y devuelve resultados estructurados como lista de dicts {t,u,s}."""
-    search_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
-    if not _run_browser(bin_path, ["open", search_url, "--timeout", str(timeout * 1000)], timeout + 5):
-        return []
-    # Reintenta la extraccion: la pagina puede no haber terminado de renderizar.
-    for _ in range(3):
-        out = _run_browser(bin_path, ["eval", _EXTRACT_JS], timeout)
-        try:
-            data = json.loads(out)
-            if isinstance(data, str):
-                data = json.loads(data)
-        except (ValueError, TypeError):
-            data = None
-        if isinstance(data, list) and data:
-            break
-        time.sleep(1)
-
-    if not isinstance(data, list):
-        return []
-    results = []
-    for r in data:
-        url = (r.get("u") or "").strip()
-        title = (r.get("t") or "").strip()
-        snippet = (r.get("s") or "").strip()
-        if url and title:
-            results.append({"u": url, "t": title, "s": snippet})
-    return results
 
 
 def _relevance_filter(text: str, keywords: list, budget: int) -> str:
@@ -333,56 +307,60 @@ def _distill_page(bin_path: str, url: str, keywords: list, timeout: int, budget:
     return _relevance_filter(out, keywords, budget)
 
 
-def web_search(query: str, timeout: int = 20, max_results: int = 4, auto_fetch: str = "first") -> str:
+def web_search(query: str, timeout: int = 20) -> str:
     query = query.strip().strip("'\"")
     if not query:
         return t("search_query_empty")
 
-    bin_path = find_agent_browser()
-    if not bin_path:
-        return t("browser_not_installed")
-
-    keywords = _query_keywords(query)
-    fetch_budget = min(2400, MAX_OUTPUT_CHARS)
-
     # URL directa -> destilar el contenido de la pagina entregada.
     if query.startswith("http://") or query.startswith("https://"):
+        bin_path = find_agent_browser()
+        if not bin_path:
+            return t("browser_not_installed")
+
+        keywords = _query_keywords(query)
+        fetch_budget = min(2400, MAX_OUTPUT_CHARS)
+
         distilled = _distill_page(bin_path, query, keywords, timeout, fetch_budget)
         if distilled:
             return t("page_distilled_header").format(url=query, text=distilled)
         if _run_browser(bin_path, ["open", query, "--timeout", str(timeout * 1000)], timeout + 5):
             text = _browser_get_text(bin_path, "main", timeout)
-            return text[:2500] if text else t("page_content_empty")
-        return t("open_url_failed")
-
-    results = _extract_results(bin_path, query, timeout)
-    if not results:
-        search_url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
-        if _run_browser(bin_path, ["open", search_url, "--timeout", str(timeout * 1000)], timeout + 5):
-            text = _browser_get_text(bin_path, "main", timeout)
             if text:
                 if len(text) > MAX_OUTPUT_CHARS:
                     text = text[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
                 return t("search_result_header").format(query=query, text=text)
-        return t("no_search_results").format(query=query)
+        return t("open_url_failed")
 
-    results = results[:max(1, min(int(max_results or 4), len(results)))]
+    parts = []
 
-    parts = [t("search_header").format(query=query)]
-    for i, r in enumerate(results, 1):
-        parts.append(f"{i}. {r['t']}\n   URL: {r['u']}\n   {r['s']}")
+    # 1) Instant Answer de DuckDuckGo (JSON via requests, sin navegador).
+    try:
+        abstract, source, url, topics = _ddg_abstract(query)
+        if abstract:
+            block = t("web_abstract_header").format(source=source or "DuckDuckGo") + "\n" + abstract
+            if url:
+                block += f"\n{url}"
+            parts.append(block)
+        for topic in topics:
+            parts.append(f"- {topic['title']}\n  {topic['snippet']}\n  {topic['url']}")
+    except Exception:
+        pass
 
-    auto_fetch = (auto_fetch or "none").strip().lower()
-    if auto_fetch in ("first", "top", "top2", "2", "true", "yes"):
-        fetch_count = 1 if auto_fetch in ("first", "true", "yes") else min(2, len(results))
-        used = sum(len(p) for p in parts)
-        per_page = max(200, (fetch_budget - used - 200) // fetch_count)
-        for i, r in enumerate(results[:fetch_count], 1):
-            content = _distill_page(bin_path, r["u"], keywords, timeout, per_page)
-            if content:
-                parts.append(f"[Content from result {i} ({r['t']})]: {content}")
+    # 2) Wikipedia en el idioma configurado (config.json: language).
+    wiki_lang = _lang if _lang in ("es", "en") else "en"
+    try:
+        hits = _wiki_search(query, wiki_lang)
+        if hits:
+            lines = [f"{i}. {h['title']} — {h['snippet']}\n   {h['url']}" for i, h in enumerate(hits, 1)]
+            parts.append(t("web_results_header").format(source=f"{wiki_lang}.wikipedia.org") + "\n" + "\n".join(lines))
+    except Exception:
+        pass
 
-    text = "\n\n".join(parts)
+    if not parts:
+        return t("web_no_results").format(query=query)
+
+    text = t("search_header").format(query=query) + "\n\n" + "\n\n".join(parts)
     if len(text) > MAX_OUTPUT_CHARS:
         text = text[:MAX_OUTPUT_CHARS] + t('truncated_chars').format(chars=MAX_OUTPUT_CHARS)
     return text
@@ -464,7 +442,7 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
             "read_file": {"enabled": True, "confirm": False},
             "write_file": {"enabled": True, "confirm": True},
             "run_command": {"enabled": True, "timeout": 30, "confirm": True},
-            "web_search": {"enabled": True, "timeout": 20, "max_results": 4, "auto_fetch": "first", "confirm": False},
+            "web_search": {"enabled": True, "timeout": 20, "confirm": False},
         }
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -499,9 +477,6 @@ def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> s
         return run_command(clean_input, timeout=timeout)
 
     elif action == "web_search":
-        timeout = tool_cfg.get("timeout", 20)
-        max_results = tool_cfg.get("max_results", 4)
-        auto_fetch = tool_cfg.get("auto_fetch", "first")
-        return web_search(clean_input, timeout=timeout, max_results=max_results, auto_fetch=auto_fetch)
+        return web_search(clean_input, timeout=tool_cfg.get("timeout", 20))
 
     return f"ERROR: Tool '{action}' execution handler not found."

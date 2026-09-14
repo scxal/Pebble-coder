@@ -23,9 +23,7 @@
   "web_search": {
     "enabled": true,
     "confirm": false,
-    "description": "web_search(query) - Busca en la web, devuelve resultados estructurados y destila el contenido de las paginas mas relevantes. Si el input es una URL, extrae directamente su contenido. El modelo no necesita web_fetch.",
-    "timeout": 20,
-    "max_results": 4,
-    "auto_fetch": "first"
+    "description": "web_search(query) - Busca informacion en la web sobre un tema usando Wikipedia y DuckDuckGo. Escribe la consulta en el mismo idioma del usuario. Si el input es una URL, extrae directamente el contenido de esa pagina.",
+    "timeout": 20
   }
 }

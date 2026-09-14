@@ -1,71 +1,86 @@
-# Agente ReAct Ligero para Modelos Locales
+```
+████  ████  ████  ████  █     ████    ████  ████  ████  ████ ████
+█  ██ █  ██ █  ██ █  ██ █     █       █    █  █  █  █ █  ██ █  █
+████  ████  ████  ████  █     ████    █    █  █  ████ ████  ████
+█     █  █  █  █ █  █  █     █       █    █  █  █  █ █  █  █ █
+█     █  █  █  █ █  █  ████  ████    ████  ████  █  █ █  █  █  █
+```
 
-Agente ReAct minimalista en Python diseñado para operar con baja latencia y bajo consumo de memoria en hardware doméstico (por ejemplo, GPUs de 8GB como RX 6600 o RTX 3060). Funciona con modelos locales pequeños y ultra-rápidos (4B-8B parámetros) como **Gemma 4 E4B**, **Qwen 2.5 / 3-Coder 7B/8B**, **Phi 4 Mini** a través de servidores compatibles con la API de OpenAI (Ollama, LM Studio, vLLM o Groq).
+# Pebble-coder
 
----
+Lightweight ReAct Agent for Local Models
 
-## Índice
-
-1. [Características Principales](#características-principales)
-2. [Estructura del Proyecto](#estructura-del-proyecto)
-3. [Requisitos Previos](#requisitos-previos)
-4. [Guía de Inicio Rápido](#guía-de-inicio-rápido)
-5. [Instrucciones de Configuración en Archivos de Texto](#instrucciones-de-configuración-en-archivos-de-texto)
-   - [Configuración General (config.json)](#1-configuración-general-configjson)
-   - [Control de Visibilidad y Modo Chat Limpio (debug, thought, observation)](#control-de-visibilidad-y-modo-chat-limpio)
-   - [Configuración de Herramientas (tools.json)](#2-configuración-de-herramientas-toolsjson)
-   - [Personalización del Prompt (system_prompt.md)](#3-personalización-del-prompt-system_promptmd)
-   - [Uso del Formato XML Opcional](#4-uso-del-formato-xml-opcional)
-6. [Modos de Uso](#modos-de-uso)
-   - [Modo Consola Interactiva (REPL)](#1-modo-consola-interactiva)
-   - [Modo Comando Directo (CLI)](#2-modo-comando-directo)
-7. [Herramientas Disponibles (incluyendo web_search con agent-browser)](#herramientas-disponibles)
-8. [Resolución de Problemas (Troubleshooting)](#resolución-de-problemas-troubleshooting)
+Minimalist ReAct agent in Python designed to operate with low latency and low memory consumption on home hardware (for example, 8GB GPUs like RX 6600 or RTX 3060). It works with small and ultra-fast local models (4B-8B parameters) such as **Gemma 4 E4B**, **Qwen 2.5 / 3-Coder 7B/8B**, **Phi 4 Mini** via OpenAI API-compatible servers (Ollama, LM Studio, vLLM, or Groq).
 
 ---
 
-## Características Principales
+## Index
 
-- **Chat limpio por defecto:** Solo muestra las interacciones y respuestas del asistente. El razonamiento interno (`Thought`) y el volcado de lecturas de archivos u observaciones no saturan la pantalla a menos que se activen.
-- **Búsqueda web ordenada (`web_search`):** Integración nativa con `agent-browser` para realizar búsquedas web concisas y lectura de páginas sin sobrecargar el contexto del modelo ni requerir APIs de pago.
-- **Sin frameworks pesados:** No utiliza LangChain, CrewAI, AutoGen ni librerías con dependencias complejas.
-- **Sin Function Calling complejo:** Utiliza el patrón ReAct clásico basado en texto estructurado (`Thought / Action / Input / Observation / Final Answer`), ideal para modelos pequeños que alucinan o fallan con JSON tool calling.
-- **100% Configurable sin tocar código:** Los modelos, endpoints, herramientas, visibilidad de logs y prompts residen en archivos de texto editables (`.json` y `.md`).
+1. [Key Features](#key-features)
+2. [Project Structure](#project-structure)
+3. [Prerequisites](#prerequisites)
+4. [Quick Start Guide](#quick-start-guide)
+5. [Text File Configuration Instructions](#text-file-configuration-instructions)
+   - [General Configuration (config.json)](#1-general-configuration-configjson)
+   - [Visibility Control and Clean Chat Mode (debug, thought, observation)](#visibility-control-and-clean-chat-mode)
+   - [Tool Configuration (tools.json)](#2-tool-configuration-toolsjson)
+   - [Prompt Customization (system_prompt.md)](#3-prompt-customization-system_promptmd)
+   - [Using the Optional XML Format](#4-using-the-optional-xml-format)
+6. [Usage Modes](#usage-modes)
+   - [Interactive Console Mode (REPL)](#1-interactive-console-mode)
+   - [Direct Command Mode (CLI)](#2-direct-command-mode)
+7. [Available Tools (including web_search with agent-browser)](#available-tools)
+8. [Tests (Sanity Tests)](#tests-sanity-tests)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Estructura del Proyecto
+## Key Features
+
+- **Clean chat by default:** Only shows interactions and responses from the assistant. Internal reasoning (`Thought`) and file read dumps or observations do not flood the screen unless enabled.
+- **Organized web search (`web_search`):** Native integration with `agent-browser` to perform concise web searches and page reading without overloading the model context or requiring paid APIs.
+- **No heavy frameworks:** Does not use LangChain, CrewAI, AutoGen, or libraries with complex dependencies.
+- **No complex Function Calling:** Uses the classic ReAct pattern based on structured text (`Thought / Action / Input / Observation / Final Answer`), ideal for small models that hallucinate or fail with JSON tool calling.
+- **100% Configurable without touching code:** Models, endpoints, tools, log visibility, and prompts reside in editable text files (`.json` and `.md`).
+
+---
+
+## Project Structure
 
 ```text
 react-agent/
 │
-├── agent.py            # Loop principal ReAct y consola interactiva
-├── parser.py           # Parser por expresiones regulares (texto plano y XML)
-├── tools.py            # Implementación de herramientas (incluye web_search con agent-browser)
-├── config.json         # Configuración general (modelo, endpoint, flags de visibilidad, etc.)
-├── tools.json          # Control de activación y parámetros de las herramientas
-├── system_prompt.md    # Prompt del sistema estándar ReAct (editable)
-├── system_prompt_xml.md# Prompt del sistema alternativo en formato XML
-├── requirements.txt    # Dependencias de Python (solo 'requests')
-├── lineamientos.md     # Especificaciones técnicas del proyecto
-└── README.md           # Esta guía de instrucciones
+├── agent.py            # Main ReAct loop, '/' commands, and interactive console
+├── parser.py           # Regex-based parser (plain text and XML)
+├── tools.py            # Tool implementation (web_search via DDG/Wikipedia APIs)
+├── menu.py             # Interactive menu engine (/settings, confirmations, autocompletion)
+├── config.json         # General configuration (model, endpoint, visibility flags, etc.)
+├── tools.json          # Tool activation, parameters, and confirmation control
+├── commands.json       # List of '/' commands for autocompletion
+├── system_prompt.md    # Standard ReAct system prompt (editable)
+├── system_prompt_xml.md# Alternative system prompt in XML format
+├── requirements.txt    # Python dependencies (only 'requests')
+├── run_tests.sh        # Runs the sanity suite
+├── tests/              # Test suite (unit + E2E with pty)
+├── lineamientos.md     # Technical project specifications
+└── README.md           # This instruction guide
 ```
 
 ---
 
-## Requisitos Previos
+## Prerequisites
 
-1. **Python 3.10 o superior**.
-2. **Servidor local de IA:**
-   - [Ollama](https://ollama.com/) (recomendado para Linux/macOS/Windows).
-   - O [LM Studio](https://lmstudio.ai/), [vLLM](https://github.com/vllm-project/vllm), [LocalAI](https://localai.io/), o cualquier servidor con endpoint compatible con OpenAI (`/v1/chat/completions`).
-3. **agent-browser:** Herramienta de navegación y lectura instalada en el sistema.
+1. **Python 3.10 or higher**.
+2. **Local AI server:**
+   - [Ollama](https://ollama.com/) (recommended for Linux/macOS/Windows).
+   - Or [LM Studio](https://lmstudio.ai/), [vLLM](https://github.com/vllm-project/vllm), [LocalAI](https://localai.io/), or any server with an OpenAI-compatible endpoint (`/v1/chat/completions`).
+3. **agent-browser:** Navigation and reading tool installed on the system.
 
 ---
 
-## Guía de Inicio Rápido
+## Quick Start Guide
 
-### Paso 1: Instalar dependencias
+### Step 1: Install dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -73,56 +88,56 @@ pip install -r requirements.txt
 
 ---
 
-### Paso 2: Iniciar tu servidor local y descargar un modelo
+### Step 2: Start your local server and download a model
 
-Si utilizas **Ollama**, descarga y ejecuta el modelo deseado:
+If you use **Ollama**, download and run the desired model:
 
 ```bash
-# Iniciar el servicio (si no corre como servicio del sistema)
+# Start the service (if not running as a system service)
 ollama serve
 
-# En otra terminal, descargar el modelo:
+# In another terminal, download the model:
 ollama pull gemma4:e4b
-# o bien:
+# or alternatively:
 ollama pull qwen2.5-coder:7b
 ```
 
 ---
 
-### Paso 3: Iniciar el agente en la consola
+### Step 3: Start the agent in the console
 
 ```bash
 python3 agent.py
 ```
 
-Aparecerá el banner de bienvenida con el estado de configuración:
+The welcome banner with the configuration status will appear:
 
 ```text
 ============================================================
-  Agente ReAct Ligero para Modelos Locales
+  Lightweight ReAct Agent for Local Models
 ============================================================
-Modelo      : gemma4:e4b
+Model       : gemma4:e4b
 Endpoint    : http://localhost:11434/v1
-Formato     : text
+Format      : text
 Debug       : off
 Thought     : off
 Observation : off
 Tools       : list_files, read_file, write_file, run_command, web_search
-Escribe 'exit' o 'quit' para salir.
+Type '/exit' to exit (commands start with '/').
 ------------------------------------------------------------
 
-Tú > 
+You > 
 ```
 
 ---
 
-## Instrucciones de Configuración en Archivos de Texto
+## Text File Configuration Instructions
 
-No necesitas recompilar ni tocar ningún archivo `.py` para cambiar el comportamiento del agente.
+You do not need to recompile or touch any `.py` file to change the agent's behavior.
 
-### 1. Configuración General (`config.json`)
+### 1. General Configuration (`config.json`)
 
-Edita `config.json` con cualquier editor de texto:
+Edit `config.json` with any text editor:
 
 ```json
 {
@@ -141,88 +156,92 @@ Edita `config.json` con cualquier editor de texto:
 }
 ```
 
-#### Opciones disponibles:
+#### Available options:
 
-| Clave | Tipo | Valores | Descripción |
+| Key | Type | Values | Description |
 |---|---|---|---|
-| `model` | string | `"gemma4:e4b"`, etc. | Nombre del modelo en tu servidor local |
-| `base_url` | string | URL | URL base de la API compatible con OpenAI |
-| `api_key` | string | `"ollama"`, etc. | Clave de API si tu servidor la requiere |
-| `temperature` | float | `0.1` - `0.3` | Aleatoriedad en la generación (valores bajos dan mayor precisión en ReAct) |
-| `max_iterations` | int | `10` | Límite máximo de ciclos por consulta |
-| `timeout` | int | `30` | Tiempo máximo de espera en segundos por respuesta del LLM |
-| `format` | string | `"text"` o `"xml"` | Formato de pensamiento y acción |
-| `debug` | string/bool | `"on"` / `"off"` | Activa el modo verbose con todo el registro detallado |
-| `thought` | string/bool | `"on"` / `"off"` | Muestra el pensamiento interno del modelo en pantalla |
-| `observation` | string/bool | `"on"` / `"off"` | Muestra el contenido de observaciones (lectura de archivos, comandos) |
-| `system_prompt_file` | string | ruta `.md` | Archivo del prompt del sistema |
-| `tools_file` | string | ruta `.json` | Archivo de configuración de herramientas |
+| `model` | string | `"gemma4:e4b"`, etc. | Model name on your local server |
+| `base_url` | string | URL | Base URL of the OpenAI-compatible API |
+| `api_key` | string | `"ollama"`, etc. | API key if your server requires one |
+| `temperature` | float | `0.1` - `0.3` | Randomness in generation (lower values give higher precision in ReAct) |
+| `max_iterations` | int | `10` | Maximum cycle limit per query |
+| `timeout` | int | `30` | Maximum wait time in seconds per LLM response |
+| `format` | string | `"text"` or `"xml"` | Thought and action format |
+| `debug` | string/bool | `"on"` / `"off"` | Enables verbose mode with full detailed logging |
+| `thought` | string/bool | `"on"` / `"off"` | Shows the model's internal thinking on screen |
+| `observation` | string/bool | `"on"` / `"off"` | Shows observation content (file reads, commands) |
+| `system_prompt_file` | string | `.md` path | System prompt file |
+| `tools_file` | string | `.json` path | Tool configuration file |
 
 ---
 
-### Control de Visibilidad y Modo Chat Limpio
+### Visibility Control and Clean Chat Mode
 
-Para evitar que la pantalla se inunde con datos innecesarios:
+To prevent the screen from flooding with unnecessary data:
 
-- **Modo Chat Limpio (`"debug": "off"`, `"thought": "off"`, `"observation": "off"`):**
-  Es el comportamiento predeterminado. La pantalla solo muestra tus mensajes y la respuesta final del asistente. Si el agente consulta un archivo de 500 líneas o realiza una búsqueda web, el contenido se envía internamente al LLM, pero no se imprime en la terminal; solo verás un aviso de progreso limpio como `[Leyendo archivo: config.json]` o `[Buscando en la web: ...]`.
+- **Clean Chat Mode (`"debug": "off"`, `"thought": "off"`, `"observation": "off"`):**
+  This is the default behavior. The screen only shows your messages and the assistant's final response. If the agent queries a 500-line file or performs a web search, the content is sent internally to the LLM, but not printed in the terminal; you will only see a clean progress notice like `[Reading file: config.json]` or `[Searching the web: ...]`.
 
-- **Ver solo los pensamientos (`"thought": "on"`):**
-  Muestra el bloque `[Pensamiento]` del modelo mientras razona, manteniendo las observaciones de archivos ocultas.
+- **View only thoughts (`"thought": "on"`):**
+  Shows the `[Thought]` block from the model while reasoning, keeping file observations hidden.
 
-- **Ver observaciones de herramientas (`"observation": "on"`):**
-  Muestra el contenido devuelto por la ejecución de herramientas (archivos leídos, salidas de comandos, resultados web).
+- **View tool observations (`"observation": "on"`):**
+  Shows the content returned by tool execution (read files, command outputs, web results).
 
-- **Modo Depuración Total (`"debug": "on"`):**
-  Muestra todas las iteraciones paso a paso (`--- [Iteracion X/Y] ---`), `[Thought]`, `[Action]`, `[Input]`, `[Observation]` completo y `[Final Answer]`.
+- **Full Debug Mode (`"debug": "on"`):**
+  Shows all iterations step by step (`--- [Iteration X/Y] ---`), `[Thought]`, `[Action]`, `[Input]`, full `[Observation]`, and `[Final Answer]`.
 
 ---
 
-### 2. Configuración de Herramientas (`tools.json`)
+### 2. Tool Configuration (`tools.json`)
 
 ```json
 {
   "list_files": {
     "enabled": true,
-    "description": "list_files(path) - Lista archivos y directorios en el path especificado (por defecto '.')."
+    "confirm": false,
+    "description": "list_files(path) - Lists files and directories in the specified path (default '.')."
   },
   "read_file": {
     "enabled": true,
-    "description": "read_file(path) - Lee el contenido de texto de un archivo."
+    "confirm": false,
+    "description": "read_file(path) - Reads the text content of a file."
   },
   "write_file": {
     "enabled": true,
-    "description": "write_file(path, content) - Sobrescribe o crea un archivo con el contenido especificado."
+    "confirm": true,
+    "description": "write_file(path, content) - Overwrites or creates a file with the specified content."
   },
   "run_command": {
     "enabled": true,
-    "description": "run_command(command) - Ejecuta comandos shell del sistema con captura de stdout y stderr.",
+    "confirm": true,
+    "description": "run_command(command) - Executes system shell commands with stdout and stderr capture.",
     "timeout": 30
   },
   "web_search": {
     "enabled": true,
-    "description": "web_search(query) - Busca en la web, devuelve resultados estructurados y destila el contenido de las paginas mas relevantes.",
-    "timeout": 20,
-    "max_results": 4,
-    "auto_fetch": "first"
+    "confirm": false,
+    "description": "web_search(query) - Searches the web for information on a topic using Wikipedia and DuckDuckGo. Write the query in the same language as the user. If the input is a URL, it directly extracts the content of that page.",
+    "timeout": 20
   }
 }
 ```
 
-- **Para desactivar una herramienta:** Cambia `"enabled": false`. El modelo no podrá invocarla.
-- **Para configurar búsquedas web:** Ajusta `"max_results"` (nº de resultados), `"timeout"` en segundos y `"auto_fetch"` dentro de `"web_search"`. `"auto_fetch"` admite `"none"` (solo snippets), `"first"` (destila la página del mejor resultado, por defecto) o `"top"` (destila las dos primeras).
+- **To disable a tool:** Change `"enabled": false`. The model will not be able to invoke it.
+- **To request user confirmation:** Change `"confirm": true`. Before executing the tool, the agent shows a Yes/No menu (`Esc`, `q`, or `Ctrl+C` deny).
+- **`web_search`:** `"timeout"` controls the request seconds (search and URL reading).
 
 ---
 
-### 3. Personalización del Prompt (`system_prompt.md`)
+### 3. Prompt Customization (`system_prompt.md`)
 
-Puedes abrir `system_prompt.md` y adaptar las instrucciones, idioma o personalidad del agente sin reiniciar nada.
+You can open `system_prompt.md` and adapt the instructions, language, or personality of the agent without restarting anything.
 
 ---
 
-### 4. Uso del Formato XML Opcional
+### 4. Using the Optional XML Format
 
-Si tu modelo rinde mejor con XML, en `config.json` cambia:
+If your model performs better with XML, in `config.json` change:
 ```json
 {
   "format": "xml",
@@ -232,68 +251,83 @@ Si tu modelo rinde mejor con XML, en `config.json` cambia:
 
 ---
 
-## Modos de Uso
+## Usage Modes
 
-### 1. Modo Consola Interactiva
+### 1. Interactive Console Mode
 
 ```bash
 python3 agent.py
 ```
 
-Ejemplos de interacción:
+Interaction examples:
 
 ```text
-Tú > ¿Cuáles son las últimas novedades de Python 3.12?
-[Buscando en la web: Python 3.12 novedades]
+You > What are the latest Python 3.12 features?
+[Searching the web: Python 3.12 features]
 
-Asistente:
-Python 3.12 introduce mejoras significativas en rendimiento, mejores mensajes de error sintáctico, la integración del nuevo parser y optimizaciones en el intérprete...
+Assistant:
+Python 3.12 introduces significant performance improvements, better syntax error messages, the integration of the new parser, and interpreter optimizations...
 ```
 
-Para salir escribe `exit`, `quit` o presiona `Ctrl + C`.
+To exit type `/exit` (or press `Ctrl + C`). When typing `/` you will see autocompletion with available commands; `↑/↓` choose, `Enter` executes, `Tab` completes.
 
-### 2. Modo Comando Directo
+### 2. Direct Command Mode
 
-Para pipelines o scripts:
+For pipelines or scripts:
 
 ```bash
-python3 agent.py "Lee config.json y dime qué modelo está seleccionado"
+python3 agent.py "Read config.json and tell me which model is selected"
 ```
 
 ---
 
-## Herramientas Disponibles
+## Available Tools
 
-1. **`web_search(query)`** *(única herramienta de investigación)*:
-   - Utiliza la herramienta del sistema `agent-browser` para realizar búsquedas web en tiempo real (Bing).
-   - Extrae resultados de forma **estructurada** (Nº, Título, URL limpia y Snippet descriptivo), respetando `max_results`.
-   - Por defecto (`"auto_fetch": "first"`) también **destila el contenido relevante** de la página del mejor resultado (`agent-browser read`), filtrando por los términos de la consulta, de modo que el modelo obtiene la respuesta en una sola llamada.
-   - Si la consulta es una URL (empieza con `http://` o `https://`), extrae y destila directamente el contenido de la página.
-   - Limita estrictamente la longitud para no sobrecargar el contexto de modelos pequeños (4B-8B).
-   - **El modelo no necesita una herramienta `web_fetch` aparte:** una llamada a `web_search` cubre búsqueda y lectura.
+1. **`web_search(query)`** *(the only research tool)*:
+   - Queries **DuckDuckGo (Instant Answers) and Wikipedia APIs** in the language configured in `config.json` — without a browser, without paid APIs, and without scraping that search engines block.
+   - Returns a direct summary of the topic plus structured results (title, snippet, and URL) compact for small models.
+   - If the query is a URL (starts with `http://` or `https://`), it directly extracts and distills the page content with `agent-browser`.
+   - Strictly limits length to avoid overloading the context of small models (4B-8B).
 
 2. **`list_files(path)`**:
-   - Lista archivos y carpetas del directorio indicado ordenados por tamaño.
+   - Lists files and folders of the indicated directory sorted by size.
 
 3. **`read_file(path)`**:
-   - Lee archivos de texto en UTF-8 con truncado seguro si excede límites de contexto.
+   - Reads UTF-8 text files with safe truncation if it exceeds context limits.
 
 4. **`write_file(path, content)`**:
-   - Crea o sobrescribe archivos creando automáticamente carpetas intermedias.
+   - Creates or overwrites files automatically creating intermediate folders.
 
 5. **`run_command(command)`**:
-   - Ejecuta comandos del sistema con tiempo límite (`timeout`) y captura de `stdout`/`stderr`.
+   - Executes system commands with a time limit (`timeout`) and `stdout`/`stderr` capture.
 
 ---
 
-## Resolución de Problemas (Troubleshooting)
+## Tests (Sanity Tests)
 
-### Error: `No se pudo conectar con el endpoint LLM`
-- Verifica que Ollama esté iniciado: `curl http://localhost:11434/api/tags`.
-- Si usas otro puerto, configúralo en `"base_url"` dentro de `config.json`.
+The suite verifies that the agent is not broken: parser, helpers, `web_search`, and real E2E flows (`/settings` menu, tool confirmations, and command autocompletion) by running `agent.py` in a pty with a simulated LLM.
+
+```bash
+./run_tests.sh          # full suite
+./run_tests.sh -v       # detailed output
+./run_tests.sh -k test_confirm   # only one group
+```
+
+- Does not require your local LLM server: E2E flows use a fake SSE server with scripted responses.
+- `config.json` is backed up and automatically restored after each test.
+- Network tests (`web_search`) are skipped automatically if there is no internet connection.
+- Approximate full suite time: 1-2 minutes.
+
+---
+
+## Troubleshooting
+
+### Error: `Could not connect to LLM endpoint`
+- Verify that Ollama is running: `curl http://localhost:11434/api/tags`.
+- If you use another port, configure it in `"base_url"` within `config.json`.
 
 ### Error: `'agent-browser' tool is not installed or not found in PATH`
-- Asegúrate de que `agent-browser` esté accesible en tu `$PATH` o en `~/.local/share/pi-node/.../bin`.
+- Make sure `agent-browser` is accessible in your `$PATH` or in `~/.local/share/pi-node/.../bin`.
 
-### Deseo ver paso a paso lo que hace el modelo
-- Activa `"debug": "on"` en `config.json` para ver el ciclo ReAct completo.
+### I want to see step by step what the model does
+- Enable `"debug": "on"` in `config.json` to see the full ReAct cycle.

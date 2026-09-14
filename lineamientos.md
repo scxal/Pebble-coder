@@ -1,65 +1,65 @@
-# REQUERIMIENTO: AGENTE REACT LIGERO PARA MODELOS LOCALES
+# REQUIREMENT: LIGHTWEIGHT REACT AGENT FOR LOCAL MODELS
 
-## Objetivo
+## Objective
 
-Crear un agente ReAct minimalista en Python diseñado para funcionar eficientemente con modelos pequeños y rápidos ejecutados localmente mediante Ollama o servidores compatibles con la API OpenAI.
+Create a minimalist ReAct agent in Python designed to work efficiently with small and fast models run locally via Ollama or OpenAI API-compatible servers.
 
-El diseño debe priorizar:
+The design must prioritize:
 
-- Baja latencia.
-- Simplicidad.
-- Bajo consumo de contexto.
-- Compatibilidad con modelos de 4B-8B parámetros.
-- Mínima dependencia de tool calling JSON.
-- Compatibilidad con Gemma 4 E4B, Qwen3-Coder 8B y modelos similares.
-- Capacidad de cambiar modelo sin modificar código.
+- Low latency.
+- Simplicity.
+- Low context consumption.
+- Compatibility with 4B-8B parameter models.
+- Minimal JSON tool calling dependency.
+- Compatibility with Gemma 4 E4B, Qwen3-Coder 8B, and similar models.
+- Ability to switch models without modifying code.
 
-No utilizar frameworks pesados como:
+Do not use heavy frameworks such as:
 
 - LangChain
 - CrewAI
 - AutoGen
 - Semantic Kernel
 
-El proyecto debe tener la menor cantidad posible de dependencias externas.
+The project must have the fewest possible external dependencies.
 
 ---
 
-## Filosofía de Diseño
+## Design Philosophy
 
-Este agente está pensado para hardware doméstico y modelos rápidos.
+This agent is intended for home hardware and fast models.
 
-Debe priorizar:
+It must prioritize:
 
-- Respuestas rápidas.
-- Iteraciones cortas.
-- Contextos pequeños.
-- Herramientas sencillas.
-- Robustez.
+- Fast responses.
+- Short iterations.
+- Small contexts.
+- Simple tools.
+- Robustness.
 
-No intentar replicar Claude Code, OpenCode o Cursor.
+Do not attempt to replicate Claude Code, OpenCode, or Cursor.
 
-No utilizar:
+Do not use:
 
 - MCP
-- Function Calling OpenAI
-- Planificadores multinivel
-- Herramientas dinámicas
-- Memoria persistente compleja
-- Agentes anidados
-- Multiagente
+- OpenAI Function Calling
+- Multi-level planners
+- Dynamic tools
+- Complex persistent memory
+- Nested agents
+- Multi-agent
 
-La filosofía es:
+The philosophy is:
 
-"Menos herramientas, más velocidad."
+"Fewer tools, more speed."
 
 ---
 
-## Arquitectura General
+## General Architecture
 
-Patrón ReAct clásico:
+Classic ReAct pattern:
 
-Usuario
+User
 ↓
 LLM
 ↓
@@ -77,21 +77,21 @@ LLM
 ↓
 Final Answer
 
-El modelo únicamente genera texto.
+The model only generates text.
 
-Nunca ejecuta herramientas.
+It never executes tools.
 
-El runtime interpreta y ejecuta las acciones.
+The runtime interprets and executes the actions.
 
 ---
 
-## Configuración
+## Configuration
 
-Toda la configuración debe almacenarse en un archivo externo:
+All configuration must be stored in an external file:
 
 config.json
 
-Ejemplo:
+Example:
 
 ```json
 {
@@ -104,16 +104,16 @@ Ejemplo:
 }
 ```
 
-Debe ser posible cambiar:
+It must be possible to change:
 
-- modelo
+- model
 - endpoint
-- temperatura
-- límite de iteraciones
+- temperature
+- iteration limit
 
-sin modificar código.
+without modifying code.
 
-Ejemplos de modelos válidos:
+Examples of valid models:
 
 ```json
 {
@@ -135,13 +135,13 @@ Ejemplos de modelos válidos:
 
 ---
 
-## Prompt del Sistema
+## System Prompt
 
-Crear:
+Create:
 
 system_prompt.md
 
-Contenido:
+Content:
 
 # ReAct Agent
 
@@ -204,166 +204,166 @@ This is a NodeJS project.
 
 ---
 
-## Herramientas Iniciales
+## Initial Tools
 
-Implementar únicamente:
+Implement only:
 
 ### list_files
 
-Firma:
+Signature:
 
 ```python
 list_files(path)
 ```
 
-Descripción:
+Description:
 
-Lista archivos y directorios.
+Lists files and directories.
 
 ---
 
 ### read_file
 
-Firma:
+Signature:
 
 ```python
 read_file(path)
 ```
 
-Descripción:
+Description:
 
-Lee archivos de texto.
+Reads text files.
 
 ---
 
 ### write_file
 
-Firma:
+Signature:
 
 ```python
 write_file(path, content)
 ```
 
-Descripción:
+Description:
 
-Sobrescribe o crea archivos.
+Overwrites or creates files.
 
 ---
 
 ### run_command
 
-Firma:
+Signature:
 
 ```python
 run_command(command)
 ```
 
-Descripción:
+Description:
 
-Ejecuta comandos shell.
+Executes shell commands.
 
-Debe incluir:
+Must include:
 
-- timeout configurable
-- captura de stdout
-- captura de stderr
+- configurable timeout
+- stdout capture
+- stderr capture
 
 ---
 
 ## Parser
 
-Implementar parser para:
+Implement parser for:
 
 ```text
-Thought: necesito inspeccionar el proyecto
+Thought: I need to inspect the project
 
 Action: list_files
 
 Input: .
 ```
 
-Extrayendo:
+Extracting:
 
 ```python
 action = "list_files"
 input = "."
 ```
 
-Utilizar expresiones regulares simples.
+Use simple regular expressions.
 
-Evitar parsers complejos.
+Avoid complex parsers.
 
 ---
 
-## Loop Principal
+## Main Loop
 
-Estructura recomendada:
+Recommended structure:
 
 ```python
 for iteration in range(max_iterations):
 ```
 
-Proceso:
+Process:
 
-1. Enviar historial al modelo.
-2. Obtener respuesta.
-3. Buscar Final Answer.
-4. Si existe, terminar.
-5. Parsear Action.
-6. Ejecutar herramienta.
-7. Generar Observation.
-8. Continuar.
+1. Send history to the model.
+2. Get response.
+3. Look for Final Answer.
+4. If it exists, finish.
+5. Parse Action.
+6. Execute tool.
+7. Generate Observation.
+8. Continue.
 
 ---
 
-## Condiciones de Salida
+## Exit Conditions
 
-Salir cuando ocurra alguna de estas condiciones:
+Exit when any of these conditions occur:
 
-### Caso 1
+### Case 1
 
 ```text
 Final Answer:
 ```
 
-### Caso 2
+### Case 2
 
 ```python
 iteration >= max_iterations
 ```
 
-### Caso 3
+### Case 3
 
-Parser inválido.
+Invalid parser.
 
-### Caso 4
+### Case 4
 
-Herramienta inexistente.
+Non-existent tool.
 
-### Caso 5
+### Case 5
 
-Error crítico de ejecución.
+Critical execution error.
 
 ---
 
-## Manejo de Errores
+## Error Handling
 
-Si una herramienta falla:
+If a tool fails:
 
 ```text
 Observation:
-ERROR: <mensaje>
+ERROR: <message>
 ```
 
-Permitir que el modelo se recupere.
+Allow the model to recover.
 
-No finalizar inmediatamente.
+Do not finish immediately.
 
 ---
 
-## Optimización para Gemma 4
+## Optimization for Gemma 4
 
-Preferir formato:
+Prefer format:
 
 ```text
 Thought:
@@ -372,7 +372,7 @@ Input:
 Observation:
 ```
 
-Evitar:
+Avoid:
 
 ```json
 {
@@ -380,7 +380,7 @@ Evitar:
 }
 ```
 
-Evitar:
+Avoid:
 
 ```json
 {
@@ -388,13 +388,13 @@ Evitar:
 }
 ```
 
-Gemma suele rendir mejor con texto estructurado que con Function Calling.
+Gemma usually performs better with structured text than with Function Calling.
 
 ---
 
-## Formato XML Opcional
+## Optional XML Format
 
-Debe existir una opción configurable:
+A configurable option must exist:
 
 ```json
 {
@@ -402,11 +402,11 @@ Debe existir una opción configurable:
 }
 ```
 
-Cuando se utilice XML, el modelo debe responder:
+When using XML, the model should respond:
 
 ```xml
 <thought>
-Necesito inspeccionar el proyecto.
+I need to inspect the project.
 </thought>
 
 <action>
@@ -418,28 +418,28 @@ list_files
 </input>
 ```
 
-El runtime deberá parsearlo.
+The runtime must parse it.
 
 ---
 
-## Límite de Herramientas
+## Tool Limit
 
-No implementar inicialmente más de:
+Do not initially implement more than:
 
 - list_files
 - read_file
 - write_file
 - run_command
 
-La meta es mantener el contexto pequeño.
+The goal is to keep the context small.
 
-Herramientas adicionales deben agregarse manualmente.
+Additional tools must be added manually.
 
 ---
 
-## Dependencias Permitidas
+## Allowed Dependencies
 
-Preferentemente:
+Preferably:
 
 ```text
 requests
@@ -451,11 +451,11 @@ subprocess
 typing
 ```
 
-Evitar dependencias innecesarias.
+Avoid unnecessary dependencies.
 
 ---
 
-## Estructura del Proyecto
+## Project Structure
 
 ```text
 project/
@@ -471,41 +471,41 @@ project/
 
 ---
 
-## Requisitos de Calidad
+## Quality Requirements
 
-El código generado debe:
+The generated code must:
 
-- Ser fácil de leer.
-- Tener pocos archivos.
-- Ser extensible.
-- Tener comentarios mínimos.
-- Poder ejecutarse inmediatamente después de instalar dependencias.
+- Be easy to read.
+- Have few files.
+- Be extensible.
+- Have minimal comments.
+- Be able to run immediately after installing dependencies.
 
 ---
 
-## Objetivo Final
+## Final Goal
 
-Construir un agente ReAct extremadamente ligero y rápido para hardware doméstico.
+Build an extremely lightweight and fast ReAct agent for home hardware.
 
-Hardware objetivo:
+Target hardware:
 
 - RX 6600 8GB
 - 32GB RAM
 - Ubuntu Linux
 
-Modelos objetivo:
+Target models:
 
 - Gemma 4 E4B
 - Qwen3-Coder 8B
 - Phi 4 Mini
-- Otros modelos rápidos de 4B-8B
+- Other fast 4B-8B models
 - Groq-Llama-8B
 
-La prioridad absoluta es:
+The absolute priority is:
 
-1. Velocidad.
-2. Robustez.
-3. Bajo consumo de tokens.
-4. Simplicidad.
+1. Speed.
+2. Robustness.
+3. Low token consumption.
+4. Simplicity.
 
-No perseguir capacidades agentic avanzadas a costa de la latencia.
+Do not pursue advanced agentic capabilities at the expense of latency.

@@ -90,7 +90,10 @@
     "page_distilled_header": "Page: {url}\n\n{text}",
     "no_search_results": "No relevant search results found for '{query}'.",
     "search_header": "Search results for: \"{query}\":",
-    "search_result_header": "Search results for: \"{query}\"\n\n{text}"
+    "search_result_header": "Search results for: \"{query}\"\n\n{text}",
+    "web_abstract_header": "Summary from {source}:",
+    "web_results_header": "Results from {source}:",
+    "web_no_results": "ERROR: No web results found for '{query}'."
   },
   "parser": {
     "missing_action_or_final_answer": "No Action or Final Answer found in model response.",

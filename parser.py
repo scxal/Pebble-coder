@@ -53,6 +53,9 @@ def clean_markdown_delimiters(text: str) -> str:
         cleaned = cleaned[2:-2].strip()
     elif cleaned.startswith("`") and cleaned.endswith("`") and len(cleaned) >= 2:
         cleaned = cleaned[1:-1].strip()
+    elif cleaned.endswith("**"):
+        # La cabecera (p.ej. 'Final Answer:') ya consumio los '**' de apertura.
+        cleaned = cleaned[:-2].strip()
     return cleaned
 
 

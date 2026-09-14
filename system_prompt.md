@@ -18,7 +18,7 @@ Available tools:
 - run_command(command)
 - web_search(query)
 
-The web_search tool searches the web AND includes distilled content from the top relevant pages in its result. One call is usually enough; you do NOT need a separate URL-fetch action.
+The web_search tool returns a summary plus related results (DuckDuckGo / Wikipedia) for a topic. If the Input is a URL, the tool extracts that page's content instead. Write the query in the user's language. One call is usually enough; you do NOT need a separate URL-fetch action.
 
 ---
 
