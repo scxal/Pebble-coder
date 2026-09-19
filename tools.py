@@ -251,6 +251,31 @@ def _wiki_search(query: str, lang: str, limit: int = 4) -> list:
     return results
 
 
+def _wiki_extract(title: str, lang: str, budget: int = 2400) -> str:
+    """Extrae el texto completo (plain text) del articulo de Wikipedia por titulo.
+
+    Usa la API de Wikipedia (action=query, prop=extracts, explaintext) en lugar de
+    abrir el navegador: es rapido, no depende de agent-browser ni de scraping.
+    """
+    r = requests.get(
+        f"https://{lang}.wikipedia.org/w/api.php",
+        params={"action": "query", "prop": "extracts", "explaintext": 1,
+                "titles": title, "format": "json", "utf8": 1},
+        headers={"User-Agent": "pebble-coder/1.0 (local ReAct agent)"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    pages = r.json().get("query", {}).get("pages", {})
+    extract = ""
+    for pg in pages.values():
+        text = pg.get("extract", "")
+        if text:
+            extract = text
+            break
+    extract = html.unescape(re.sub(r"<[^>]+>", "", extract))
+    return extract[:budget]
+
+
 def _ddg_abstract(query: str, max_topics: int = 3) -> Tuple[str, str, str, list]:
     """Instant Answer de DuckDuckGo (JSON via requests, sin navegador).
 
@@ -309,7 +334,7 @@ def _distill_page(bin_path: str, url: str, keywords: list, timeout: int, budget:
 
 def web_search(query: str, timeout: int = 20, max_output_chars: int = MAX_OUTPUT_CHARS,
                max_wiki_results: int = 4, max_ddg_topics: int = 3,
-               fetch_budget: int = 2400) -> str:
+               fetch_budget: int = 2400, auto_fetch: bool = False) -> str:
     query = query.strip().strip("'\"")
     if not query:
         return t("search_query_empty")
@@ -337,6 +362,8 @@ def web_search(query: str, timeout: int = 20, max_output_chars: int = MAX_OUTPUT
     parts = []
 
     # 1) Instant Answer de DuckDuckGo (JSON via requests, sin navegador).
+    abstract = ""
+    topics = []
     try:
         abstract, source, url, topics = _ddg_abstract(query, max_ddg_topics)
         if abstract:
@@ -351,6 +378,7 @@ def web_search(query: str, timeout: int = 20, max_output_chars: int = MAX_OUTPUT
 
     # 2) Wikipedia en el idioma configurado (config.json: language).
     wiki_lang = _lang if _lang in ("es", "en") else "en"
+    hits = []
     try:
         hits = _wiki_search(query, wiki_lang, max_wiki_results)
         if hits:
@@ -358,6 +386,27 @@ def web_search(query: str, timeout: int = 20, max_output_chars: int = MAX_OUTPUT
             parts.append(t("web_results_header").format(source=f"{wiki_lang}.wikipedia.org") + "\n" + "\n".join(lines))
     except Exception:
         pass
+
+    # 3) Auto-fetch: si el Instant Answer de DDG no devolvio abstract (resumen vacio),
+    #    obtener el extracto completo del Top-1 de Wikipedia vía API (sin navegador),
+    #    ya que funciona mejor y sin bloqueos de scraping. Sin Wikipedia, abrir el
+    #    topic de DDG mas relevante con agent-browser.
+    if auto_fetch and not abstract:
+        fb = min(fetch_budget, max_output_chars)
+        if hits:
+            try:
+                extract = _wiki_extract(hits[0]["title"], wiki_lang, fb)
+                if extract:
+                    parts.append(t("web_abstract_header").format(source=f"{wiki_lang}.wikipedia.org") + "\n" + extract)
+            except Exception:
+                pass
+        elif topics:
+            bin_path = find_agent_browser()
+            if bin_path:
+                keywords = _query_keywords(query)
+                distilled = _distill_page(bin_path, topics[0]["url"], keywords, timeout, fb)
+                if distilled:
+                    parts.append(t("page_distilled_header").format(url=topics[0]["url"], text=distilled))
 
     if not parts:
         return t("web_no_results").format(query=query)
@@ -446,7 +495,7 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
             "run_command": {"enabled": True, "timeout": 30, "confirm": True},
             "web_search": {"enabled": True, "timeout": 20, "confirm": False,
                            "max_output_chars": MAX_OUTPUT_CHARS, "max_wiki_results": 4,
-                           "max_ddg_topics": 3, "fetch_budget": 2400},
+                           "max_ddg_topics": 3, "fetch_budget": 2400, "auto_fetch": False},
         }
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -488,6 +537,7 @@ def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> s
             max_wiki_results=tool_cfg.get("max_wiki_results", 4),
             max_ddg_topics=tool_cfg.get("max_ddg_topics", 3),
             fetch_budget=tool_cfg.get("fetch_budget", 2400),
+            auto_fetch=tool_cfg.get("auto_fetch", False),
         )
 
     return f"ERROR: Tool '{action}' execution handler not found."

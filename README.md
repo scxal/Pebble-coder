@@ -226,18 +226,20 @@ To prevent the screen from flooding with unnecessary data:
     "max_output_chars": 3000,
     "max_wiki_results": 4,
     "max_ddg_topics": 3,
-    "fetch_budget": 2400
+    "fetch_budget": 2400,
+    "auto_fetch": false
   }
 }
 ```
 
 - **To disable a tool:** Change `"enabled": false`. The model will not be able to invoke it.
 - **To request user confirmation:** Change `"confirm": true`. Before executing the tool, the agent shows a Yes/No menu (`Esc`, `q`, or `Ctrl+C` deny).
-- **`web_search`:** `"timeout"` controls the request seconds (search and URL reading). The optional keys below cap result sizes so small models are not flooded (the system prompt and tool description tell the model to query in the user's language):
+- **`web_search`:** `"timeout"` controls the request seconds (search and URL reading). The optional keys below cap result sizes so small models are not flooded (the system prompt and tool description instruct the model to query in the user's language):
   - `"max_output_chars"`: max characters of the assembled result (default `3000`).
   - `"max_wiki_results"`: max Wikipedia hits (default `4`).
   - `"max_ddg_topics"`: max DuckDuckGo related-topics shown (default `3`).
   - `"fetch_budget"`: max characters distilled from a direct URL (default `2400`, capped by `max_output_chars`).
+  - `"auto_fetch"`: when `true` and DuckDuckGo returns **no** abstract, the tool fetches the **full Wikipedia article** of the top hit via the Wikipedia API (no browser) — more reliable than scraped snippets for small models. Falls back to opening the top DuckDuckGo topic URL with `agent-browser`. Default `false`.
 
 ---
 

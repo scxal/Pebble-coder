@@ -1,5 +1,6 @@
 """Tests de web_search. Los de red se saltan solos si no hay internet."""
 import unittest
+from unittest.mock import patch
 
 from tests.helpers import net_ok
 from tools import find_agent_browser, web_search
@@ -35,6 +36,27 @@ class TestWebSearchInputValidation(unittest.TestCase):
         self.assertIn("ERROR", r)
         r = web_search("   ")
         self.assertIn("ERROR", r)
+
+
+class TestWebSearchAutoFetch(unittest.TestCase):
+    """Regla de decision de auto_fetch: solo se activa cuando DDG no da abstract."""
+
+    @patch("tools._ddg_abstract", return_value=("summary text", "DuckDuckGo", "http://x", []))
+    @patch("tools._wiki_search", return_value=[])
+    @patch("tools._wiki_extract")
+    def test_skips_fetch_when_abstract_present(self, mock_extract, _mock_wiki, _mock_ddg):
+        web_search("query", auto_fetch=True, timeout=5, max_output_chars=3000, fetch_budget=2400)
+        mock_extract.assert_not_called()
+
+    @patch("tools._ddg_abstract", return_value=("", "", "", []))
+    @patch("tools._wiki_search", return_value=[
+        {"title": "Some Page", "snippet": "snip", "url": "http://es.wikipedia.org/wiki/Some_Page"}])
+    @patch("tools._wiki_extract", return_value="extracto completo del articulo")
+    def test_fetches_wiki_extract_when_no_abstract(self, mock_extract, _mock_wiki, _mock_ddg):
+        r = web_search("query", auto_fetch=True, timeout=5, max_output_chars=3000, fetch_budget=2400)
+        mock_extract.assert_called_once()
+        self.assertIn("extracto completo del articulo", r)
+        self.assertIn("Summary from es.wikipedia.org", r)
 
 
 if __name__ == "__main__":
