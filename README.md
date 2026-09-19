@@ -29,6 +29,7 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
 6. [Usage Modes](#usage-modes)
    - [Interactive Console Mode (REPL)](#1-interactive-console-mode)
    - [Direct Command Mode (CLI)](#2-direct-command-mode)
+   - [Slash Commands and Autocomplete](#3-slash-commands-and-autocomplete)
 7. [Available Tools (including web_search with agent-browser)](#available-tools)
 8. [Tests (Sanity Tests)](#tests-sanity-tests)
 9. [Troubleshooting](#troubleshooting)
@@ -57,6 +58,8 @@ react-agent/
 ├── config.json         # General configuration (model, endpoint, visibility flags, etc.)
 ├── tools.json          # Tool activation, parameters, and confirmation control
 ├── commands.json       # List of '/' commands for autocompletion
+├── translations_es.json# Spanish texts (sections: ui, menu, tools, parser)
+├── translations_en.json# English texts (sections: ui, menu, tools, parser)
 ├── system_prompt.md    # Standard ReAct system prompt (editable)
 ├── system_prompt_xml.md# Alternative system prompt in XML format
 ├── requirements.txt    # Python dependencies (only 'requests')
@@ -141,6 +144,7 @@ Edit `config.json` with any text editor:
 
 ```json
 {
+  "language": "es",
   "model": "gemma4:e4b",
   "base_url": "http://localhost:11434/v1",
   "api_key": "ollama",
@@ -160,6 +164,7 @@ Edit `config.json` with any text editor:
 
 | Key | Type | Values | Description |
 |---|---|---|---|
+| `language` | string | `"es"`, `"en"` | Interface language (translations files); changing it from `/settings` hot-reloads all texts |
 | `model` | string | `"gemma4:e4b"`, etc. | Model name on your local server |
 | `base_url` | string | URL | Base URL of the OpenAI-compatible API |
 | `api_key` | string | `"ollama"`, etc. | API key if your server requires one |
@@ -291,6 +296,28 @@ python3 agent.py "Read config.json and tell me which model is selected"
 
 ---
 
+### 3. Slash Commands and Autocomplete
+
+The console supports commands that start with `/`:
+
+- **`/settings`**: opens the interactive settings menu (explained below).
+- **`/exit`** (alias `/quit`): closes the agent.
+- **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list.
+
+The command list lives in `commands.json` (command name → i18n key of its description).
+
+#### The `/settings` menu
+
+Each option maps to one `config.json` key and shows its current value:
+
+- Navigate with `↑/↓` or press the option number (`1-9`). `Enter` edits/toggles, `q` or `Esc` closes the menu.
+- **Toggles** (`debug`, `thought`, `observation`) flip instantly. **Choices** (`language`, `format`) cycle between their valid values. **Text options** (`model`, `base_url`, `api_key`, `temperature`, `max_iterations`, `timeout`, `system_prompt_file`, `tools_file`) open an input line with validation: an invalid value is rejected and nothing changes.
+- Every change applies live to the running session **and** is saved to `config.json` immediately, so no restart is needed.
+- Changing `language` hot-reloads all interface texts without restarting.
+- Changing `tools_file` reloads the tool configuration on the spot.
+
+---
+
 ## Available Tools
 
 1. **`web_search(query)`** *(the only research tool)*:
@@ -315,7 +342,7 @@ python3 agent.py "Read config.json and tell me which model is selected"
 
 ## Tests (Sanity Tests)
 
-The suite verifies that the agent is not broken: parser, helpers, `web_search`, and real E2E flows (`/settings` menu, tool confirmations, and command autocompletion) by running `agent.py` in a pty with a simulated LLM.
+The suite verifies that the agent is not broken: parser, helpers, `web_search`, UTF-8 accented input (`áéíóúñ`/`ÁÉÍÓÚÑÜ` in the REPL), and real E2E flows (`/settings` menu, tool confirmations, and command autocompletion) by running `agent.py` in a pty with a simulated LLM.
 
 ```bash
 ./run_tests.sh          # full suite
