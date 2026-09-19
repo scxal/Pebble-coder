@@ -303,6 +303,7 @@ The console supports commands that start with `/`:
 - **`/settings`**: opens the interactive settings menu (explained below).
 - **`/exit`** (alias `/quit`): closes the agent.
 - **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list.
+- **Line editing:** the block cursor marks where input goes: `←/→` move it, text is inserted at it, `Backspace` deletes before it, `Delete` deletes at it, `Home`/`End` jump to the start/end of the line.
 
 The command list lives in `commands.json` (command name → i18n key of its description).
 

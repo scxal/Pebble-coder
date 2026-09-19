@@ -183,7 +183,8 @@ def _read_utf8_char(fd: int) -> str:
 
 
 def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
-    """Lee una tecla del fd crudo: up/down/enter/quit/esc/backspace/tab/unknown o el caracter."""
+    """Lee una tecla del fd crudo: up/down/left/right/home/end/delete, enter,
+    quit/esc/backspace/tab o el caracter."""
     ch = _read_utf8_char(fd)
     if ch in ("", "\x04"):
         return "quit"
@@ -193,14 +194,33 @@ def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
             return "esc"
         if os.read(fd, 1).decode("utf-8", errors="replace") != "[":
             return "esc"
-        pending, _, _ = select.select([sys.stdin], [], [], _KEY_TIMEOUT)
-        if not pending:
-            return "esc"
-        final = os.read(fd, 1).decode("utf-8", errors="replace")
-        if final == "A":
+        # CSI: se leen los bytes de parametro (0x20-0x3F) hasta el final (>= 0x40),
+        # p.ej. 'A' (up), 'D' (left), '3~' (delete), '1~' (home).
+        seq = ""
+        while True:
+            pending, _, _ = select.select([sys.stdin], [], [], _KEY_TIMEOUT)
+            if not pending:
+                return "unknown"
+            nxt = os.read(fd, 1).decode("utf-8", errors="replace")
+            if not nxt:
+                return "unknown"
+            seq += nxt
+            if nxt >= "@":
+                break
+        if seq == "A":
             return "up"
-        if final == "B":
+        if seq == "B":
             return "down"
+        if seq == "C":
+            return "right"
+        if seq == "D":
+            return "left"
+        if seq in ("H", "1~", "7~"):
+            return "home"
+        if seq in ("F", "4~", "8~"):
+            return "end"
+        if seq == "3~":
+            return "delete"
         return "unknown"
     if ch in ("\r", "\n"):
         return "enter"
@@ -393,6 +413,7 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
     old_attrs = termios.tcgetattr(fd)
     desc_list = descriptions if descriptions is not None else [""] * len(commands)
     buffer = ""
+    pos = 0  # posicion del cursor dentro de buffer (el bloque inverso la marca)
     sel = 0
     show_popup = True
     prev_rows = 0
@@ -408,7 +429,7 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
         nonlocal prev_rows, prev_popup
         shown = matched()[:_POPUP_MAX] if show_popup else []
         width = _terminal_width()
-        in_rows = max(1, -(-(len(prompt) + len(buffer)) // width))
+        in_rows = max(1, -(-(len(prompt) + len(buffer) + 1) // width))
         p_rows = in_rows + (len(shown) + 1 if shown else 0)
 
         if not first:
@@ -419,7 +440,12 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
         else:
             sys.stdout.write("\033[?25l")
 
-        sys.stdout.write("\033[K" + prompt + buffer + "\n")
+        before = buffer[:pos]
+        at = buffer[pos] if pos < len(buffer) else " "
+        after = buffer[pos + 1:]
+        # Bloque en video inverso sobre el caracter en pos: marca donde cae lo
+        # tecleado, porque el cursor real queda oculto durante el redraw.
+        sys.stdout.write("\033[K" + prompt + before + c(at, "7") + after + "\n")
         for i, cmd in enumerate(shown):
             idx = commands.index(cmd)
             desc = desc_list[idx] if idx < len(desc_list) else ""
@@ -462,13 +488,27 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
                 options = matched()
                 if options and show_popup:
                     buffer = options[min(sel, len(options) - 1)]
+                    pos = len(buffer)
+            elif key == "left":
+                pos = max(0, pos - 1)
+            elif key == "right":
+                pos = min(len(buffer), pos + 1)
+            elif key == "home":
+                pos = 0
+            elif key == "end":
+                pos = len(buffer)
+            elif key == "delete":
+                if pos < len(buffer):
+                    buffer = buffer[:pos] + buffer[pos + 1:]
             elif key == "backspace":
-                if buffer:
-                    buffer = buffer[:-1]
+                if pos > 0:
+                    buffer = buffer[:pos - 1] + buffer[pos:]
+                    pos -= 1
                 sel = 0
                 show_popup = True
             elif len(key) == 1 and key >= " ":
-                buffer += key
+                buffer = buffer[:pos] + key + buffer[pos:]
+                pos += 1
                 sel = 0
                 show_popup = True
             else:
