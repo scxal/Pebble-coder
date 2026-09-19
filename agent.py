@@ -56,16 +56,16 @@ def reload_translations() -> None:
     """(Re)carga el idioma desde config.json y refresca las traducciones."""
     global _lang, _t_es, _translations, _ui, _parser
     try:
-        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
+        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
         _lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
     except Exception:
         pass
     try:
-        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text())
+        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
         _t_es = {}
     try:
-        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text())
+        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
         _translations = {}
     _ui = _translations.get("ui", {})
@@ -626,7 +626,7 @@ def load_commands(path: str = "commands.json") -> List[Tuple[str, str]]:
     entries: Dict[str, str] = {}
     if cmd_path.exists():
         try:
-            entries = json.loads(cmd_path.read_text()).get("commands", {})
+            entries = json.loads(cmd_path.read_text(encoding="utf-8")).get("commands", {})
         except (json.JSONDecodeError, OSError, AttributeError):
             entries = {}
     if not entries:
@@ -645,6 +645,11 @@ def handle_command(user_input: str, config: Dict[str, Any], tools_config: Dict[s
 
 
 def main():
+    # Forzar UTF-8 en la salida: evita mojibake de acentos si la locale no es UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     config = load_config(str(_SCRIPT_DIR / "config.json"))
     tools_file = config.get("tools_file", "tools.json")
     

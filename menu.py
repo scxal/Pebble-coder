@@ -68,16 +68,16 @@ _menu_t = {}
 def load_translations() -> None:
     global _lang, _t_es, _translations, _menu_t
     try:
-        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
+        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
         _lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
     except Exception:
         pass
     try:
-        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text())
+        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
         _t_es = {}
     try:
-        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text())
+        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
         _translations = {}
     _menu_t = _translations.get("menu", {})
@@ -147,15 +147,46 @@ _INVALID = object()
 _KEY_TIMEOUT = 0.05
 
 
-def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
-    """Lee una tecla del fd crudo: up/down/enter/quit/esc/backspace/tab/unknown o el caracter."""
+def _read_utf8_char(fd: int) -> str:
+    """Lee un caracter UTF-8 completo (1-4 bytes) del fd crudo.
+
+    Los acentos (á, Á, ñ) llegan en varias lecturas de un byte: decodificar
+    byte a byte los partia en dos caracteres de reemplazo. Los bytes de
+    continuacion ya estan buffered del mismo tecleo.
+    """
     try:
         data = os.read(fd, 1)
     except OSError:
+        return ""
+    if not data:
+        return ""
+    first = data[0]
+    remaining = 0
+    if 0xC2 <= first <= 0xDF:
+        remaining = 1
+    elif 0xE0 <= first <= 0xEF:
+        remaining = 2
+    elif 0xF0 <= first <= 0xF4:
+        remaining = 3
+    for _ in range(remaining):
+        ready, _, _ = select.select([fd], [], [], _KEY_TIMEOUT)
+        if not ready:
+            break
+        try:
+            nxt = os.read(fd, 1)
+        except OSError:
+            break
+        if not nxt:
+            break
+        data += nxt
+    return data.decode("utf-8", errors="replace")
+
+
+def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
+    """Lee una tecla del fd crudo: up/down/enter/quit/esc/backspace/tab/unknown o el caracter."""
+    ch = _read_utf8_char(fd)
+    if ch in ("", "\x04"):
         return "quit"
-    if not data or data == b"\x04":
-        return "quit"
-    ch = data.decode("utf-8", errors="replace")
     if ch == "\x1b":
         pending, _, _ = select.select([sys.stdin], [], [], _KEY_TIMEOUT)
         if not pending:

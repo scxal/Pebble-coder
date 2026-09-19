@@ -16,20 +16,20 @@ import requests
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _lang = "es"
 try:
-    _cfg = json.loads((_SCRIPT_DIR / "config.json").read_text())
+    _cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
     _lang = (_cfg.get("language") or "es") if _cfg.get("language") in ("es", "en") else "es"
 except Exception:
     pass
 
 _t_es = {}
 try:
-    _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text())
+    _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text(encoding="utf-8"))
 except FileNotFoundError:
     pass
 
 _translations = {}
 try:
-    _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text())
+    _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8"))
 except FileNotFoundError:
     _translations = {}
 
@@ -119,7 +119,7 @@ def read_file(path: str) -> str:
 
     try:
         try:
-            content = target.read_text(encoding="utf-8", errors="replace")
+            content = target.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             content = target.read_text(encoding="latin-1", errors="replace")
 
@@ -164,7 +164,8 @@ def run_command(command: str, timeout: int = 30) -> str:
             command,
             shell=True,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout
         )
         stdout = proc.stdout.strip()
@@ -203,7 +204,8 @@ def _run_browser(bin_path: str, args: list, timeout: int) -> str:
         proc = subprocess.run(
             [bin_path] + args,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
         if proc.returncode == 0:
@@ -301,7 +303,7 @@ def _ddg_abstract(query: str, max_topics: int = 3) -> Tuple[str, str, str, list]
 
 def _query_keywords(query: str) -> list:
     """Extrae los terminos significativos de la consulta para filtrar relevancia."""
-    words = re.findall(r"[a-záéíóúñü0-9]+", query.lower())
+    words = re.findall(r"[a-záéíóúüñA-ZÁÉÍÓÚÜÑ0-9]+", query.lower())
     return [w for w in words if len(w) > 2 and w not in _STOPWORDS][:8]
 
 
