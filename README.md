@@ -39,6 +39,7 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
 ## Key Features
 
 - **Clean chat by default:** Only shows interactions and responses from the assistant. Internal reasoning (`Thought`) and file read dumps or observations do not flood the screen unless enabled.
+- **Session conversation memory:** In console mode the agent keeps the last exchanges (user question + final answer) of the session, so follow-up questions keep context. It lives in RAM only — nothing persists between runs.
 - **Organized web search (`web_search`):** Native integration with `agent-browser` to perform concise web searches and page reading without overloading the model context or requiring paid APIs.
 - **No heavy frameworks:** Does not use LangChain, CrewAI, AutoGen, or libraries with complex dependencies.
 - **No complex Function Calling:** Uses the classic ReAct pattern based on structured text (`Thought / Action / Input / Observation / Final Answer`), ideal for small models that hallucinate or fail with JSON tool calling.

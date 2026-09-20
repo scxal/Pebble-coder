@@ -5,7 +5,7 @@ import readline
 import re
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 import requests
 
@@ -411,7 +411,19 @@ def stream_llm(messages: List[Dict[str, str]], config: Dict[str, Any], label=Non
     return full, header_shown
 
 
-def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any]) -> str:
+_HISTORY_MAX_MESSAGES = 6  # ultimos 3 intercambios (pregunta + respuesta final)
+
+
+def update_history(history: List[Dict[str, str]], user_input: str, answer: str) -> None:
+    """Guarda el intercambio terminado y recorta al limite de memoria de sesion."""
+    history.append({"role": "user", "content": user_input})
+    history.append({"role": "assistant", "content": answer or ""})
+    if len(history) > _HISTORY_MAX_MESSAGES:
+        del history[: len(history) - _HISTORY_MAX_MESSAGES]
+
+
+def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any],
+                    history: Optional[List[Dict[str, str]]] = None) -> str:
     system_prompt = load_system_prompt(config)
     format_type = config.get("format", "text").lower()
     max_iterations = int(config.get("max_iterations", 10))
@@ -422,10 +434,12 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
 
     thought_label = bold(green(t("thought_label")))
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_input},
-    ]
+    # Memoria de sesion: intercambios previos antes del turno actual para que
+    # el modelo no pierda el hilo entre preguntas consecutivas del REPL.
+    messages = [{"role": "system", "content": system_prompt}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_input})
 
     for iteration in range(1, max_iterations + 1):
         if debug_mode:
@@ -454,6 +468,10 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
             return parsed.final_answer or ""
 
         if parsed.error:
+            # Transcripcion honesta: primero lo que respondio el modelo (mal),
+            # despues la correccion como usuario. Si solo se inyectara la
+            # correccion, el modelo cree que el USER dijo "FORMAT ERROR".
+            messages.append({"role": "assistant", "content": raw_response})
             messages.append({
                 "role": "user",
                 "content": t("format_error_instructions"),
@@ -712,6 +730,7 @@ def main():
     command_names = [name for name, _ in commands]
     command_descs = [desc for _, desc in commands]
 
+    history: List[Dict[str, str]] = []
     while True:
         try:
             user_input = command_input(t("prompt"), command_names, command_descs).strip()
@@ -730,7 +749,8 @@ def main():
             tools_config = handle_command(user_input, config, tools_config)
             continue
 
-        run_react_agent(user_input, config, tools_config)
+        answer = run_react_agent(user_input, config, tools_config, history)
+        update_history(history, user_input, answer)
 
 
 if __name__ == "__main__":
