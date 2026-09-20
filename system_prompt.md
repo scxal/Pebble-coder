@@ -17,8 +17,9 @@ Available tools:
 - write_file(path, content)
 - run_command(command)
 - web_search(query)
+- web_fetch(url)
 
-The web_search tool returns a summary plus related results (DuckDuckGo / Wikipedia) for a topic. If the Input is a URL, the tool extracts that page's content instead. Write the query in the user's language. One call is usually enough; you do NOT need a separate URL-fetch action.
+The web_search tool returns a summary plus related results (DuckDuckGo / Wikipedia) for a topic. Write the query in the user's language. The web_fetch tool opens ONE specific URL (http:// or https://) and returns its readable text; use it when the user gives a direct link or when a page must be read in full.
 
 ---
 

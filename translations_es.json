@@ -86,6 +86,7 @@
     "search_query_empty": "ERROR: Search query cannot be empty",
     "browser_not_installed": "ERROR: 'agent-browser' tool is not installed or not found in PATH.",
     "open_url_failed": "ERROR: Could not open URL",
+    "fetch_invalid_url": "ERROR: El input debe ser una URL valida que empiece por http:// o https://.",
     "page_content_empty": "(Page content is empty)",
     "page_distilled_header": "Page: {url}\n\n{text}",
     "no_search_results": "No relevant search results found for '{query}'.",

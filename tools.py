@@ -419,6 +419,28 @@ def web_search(query: str, timeout: int = 20, max_output_chars: int = MAX_OUTPUT
     return text
 
 
+def web_fetch(url: str, timeout: int = 20, max_output_chars: int = MAX_OUTPUT_CHARS) -> str:
+    """Abre una URL concreta y devuelve su texto legible (sin busqueda previa)."""
+    url = url.strip().strip("'\"")
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return t("fetch_invalid_url")
+
+    bin_path = find_agent_browser()
+    if not bin_path:
+        return t("browser_not_installed")
+
+    if not _run_browser(bin_path, ["open", url, "--timeout", str(timeout * 1000)], timeout + 5):
+        return t("open_url_failed")
+
+    text = _browser_get_text(bin_path, "main", timeout) or _browser_get_text(bin_path, "body", timeout)
+    if not text or "no matching page sections" in text.lower():
+        return t("open_url_failed")
+
+    if len(text) > max_output_chars:
+        text = text[:max_output_chars] + t('truncated_chars').format(chars=max_output_chars)
+    return t("page_distilled_header").format(url=url, text=text)
+
+
 def parse_write_file_args(raw_input: str) -> Tuple[str, str]:
     raw_input = raw_input.strip()
 
@@ -484,6 +506,7 @@ TOOL_FUNCTIONS = {
     "write_file": write_file,
     "run_command": run_command,
     "web_search": web_search,
+    "web_fetch": web_fetch,
 }
 
 
@@ -498,6 +521,8 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
             "web_search": {"enabled": True, "timeout": 20, "confirm": False,
                            "max_output_chars": MAX_OUTPUT_CHARS, "max_wiki_results": 4,
                            "max_ddg_topics": 3, "fetch_budget": 2400, "auto_fetch": False},
+            "web_fetch": {"enabled": True, "timeout": 20, "confirm": False,
+                          "max_output_chars": MAX_OUTPUT_CHARS},
         }
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -540,6 +565,13 @@ def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> s
             max_ddg_topics=tool_cfg.get("max_ddg_topics", 3),
             fetch_budget=tool_cfg.get("fetch_budget", 2400),
             auto_fetch=tool_cfg.get("auto_fetch", False),
+        )
+
+    elif action == "web_fetch":
+        return web_fetch(
+            clean_input,
+            timeout=tool_cfg.get("timeout", 20),
+            max_output_chars=tool_cfg.get("max_output_chars", MAX_OUTPUT_CHARS),
         )
 
     return f"ERROR: Tool '{action}' execution handler not found."

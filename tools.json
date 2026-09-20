@@ -29,6 +29,13 @@
     "max_wiki_results": 4,
     "max_ddg_topics": 3,
     "fetch_budget": 2400,
-    "auto_fetch": true
+    "auto_fetch": false
+  },
+  "web_fetch": {
+    "enabled": true,
+    "confirm": false,
+    "description": "web_fetch(url) - Abre una URL concreta (http:// o https://) y devuelve su texto legible. Usarla cuando el usuario entrega un enlace directo o haya que leer una pagina completa.",
+    "timeout": 20,
+    "max_output_chars": 3000
   }
 }

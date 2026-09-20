@@ -233,6 +233,13 @@ To prevent the screen from flooding with unnecessary data:
     "max_ddg_topics": 3,
     "fetch_budget": 2400,
     "auto_fetch": false
+  },
+  "web_fetch": {
+    "enabled": true,
+    "confirm": false,
+    "description": "web_fetch(url) - Opens a specific URL (http:// or https://) and returns its readable text. Use it when the user gives a direct link.",
+    "timeout": 20,
+    "max_output_chars": 3000
   }
 }
 ```
@@ -338,6 +345,10 @@ Each option maps to one `config.json` key and shows its current value:
 
 5. **`run_command(command)`**:
    - Executes system commands with a time limit (`timeout`) and `stdout`/`stderr` capture.
+
+6. **`web_fetch(url)`**:
+   - Opens ONE specific URL (`http://`/`https://`) and returns its readable text via `agent-browser`, capped by `max_output_chars`.
+   - Use case: the user provides a direct link or a page must be read in full (complements `web_search`).
 
 ---
 

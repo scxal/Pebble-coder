@@ -9,8 +9,9 @@ Available tools:
 - write_file(path, content)
 - run_command(command)
 - web_search(query)
+- web_fetch(url)
 
-The web_search tool searches the web AND includes distilled content from the top relevant pages in its result. One call is usually enough; you do NOT need a separate URL-fetch action.
+The web_search tool searches the web for a topic (DuckDuckGo / Wikipedia). The web_fetch tool opens ONE specific URL (http:// or https://) and returns its readable text; use it when the user gives a direct link or when a page must be read in full.
 
 CRITICAL RULES:
 
