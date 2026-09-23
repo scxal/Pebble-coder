@@ -38,6 +38,7 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
 
 ## Key Features
 
+- **Statistics status bar, always visible:** a dim row PINNED to the bottom line of the terminal — the last line is reserved (scroll region) while `stats` is on, so the bar stays put while you type, while the model streams its answer, and during tool output. It shows the time the answer took (`LLM`, counting live during the request), tokens/s, context used against the model window (`ctx`), and GPU/CPU/RAM. Toggle with `"stats"` in `config.json` or `/settings`; on exit the normal scrolling is restored.
 - **Clean chat by default:** Only shows interactions and responses from the assistant. Internal reasoning (`Thought`) and file read dumps or observations do not flood the screen unless enabled.
 - **Session conversation memory:** In console mode the agent keeps the last exchanges (user question + final answer) of the session, so follow-up questions keep context. It lives in RAM only — nothing persists between runs.
 - **Organized web search (`web_search`):** Native integration with `agent-browser` to perform concise web searches and page reading without overloading the model context or requiring paid APIs.
@@ -156,6 +157,8 @@ Edit `config.json` with any text editor:
   "debug": "off",
   "thought": "off",
   "observation": "off",
+  "stats": "on",
+  "context_window": 32768,
   "system_prompt_file": "system_prompt.md",
   "tools_file": "tools.json"
 }
@@ -169,13 +172,15 @@ Edit `config.json` with any text editor:
 | `model` | string | `"gemma4:e4b"`, etc. | Model name on your local server |
 | `base_url` | string | URL | Base URL of the OpenAI-compatible API |
 | `api_key` | string | `"ollama"`, etc. | API key if your server requires one |
-| `temperature` | float | `0.1` - `0.3` | Randomness in generation (lower values give higher precision in ReAct) |
+| `temperature` | float | `0.1` - `0.3` | Randomness in generation (lower values give higher precision for ReAct) |
 | `max_iterations` | int | `10` | Maximum cycle limit per query |
 | `timeout` | int | `30` | Maximum wait time in seconds per LLM response |
 | `format` | string | `"text"` or `"xml"` | Thought and action format |
 | `debug` | string/bool | `"on"` / `"off"` | Enables verbose mode with full detailed logging |
 | `thought` | string/bool | `"on"` / `"off"` | Shows the model's internal thinking on screen |
 | `observation` | string/bool | `"on"` / `"off"` | Shows observation content (file reads, commands) |
+| `stats` | string/bool | `"on"` / `"off"` | Status bar pinned to the terminal's last line (LLM answer time, tokens/s, context used, GPU/CPU/RAM); that line is reserved while on |
+| `context_window` | int | `32768` | Nominal model window displayed by the status bar's `ctx` metric |
 | `system_prompt_file` | string | `.md` path | System prompt file |
 | `tools_file` | string | `.json` path | Tool configuration file |
 
@@ -320,7 +325,7 @@ The command list lives in `commands.json` (command name → i18n key of its desc
 Each option maps to one `config.json` key and shows its current value:
 
 - Navigate with `↑/↓` or press the option number (`1-9`). `Enter` edits/toggles, `q` or `Esc` closes the menu.
-- **Toggles** (`debug`, `thought`, `observation`) flip instantly. **Choices** (`language`, `format`) cycle between their valid values. **Text options** (`model`, `base_url`, `api_key`, `temperature`, `max_iterations`, `timeout`, `system_prompt_file`, `tools_file`) open an input line with validation: an invalid value is rejected and nothing changes.
+- **Toggles** (`debug`, `thought`, `observation`, `stats`) flip instantly. **Choices** (`language`, `format`) cycle between their valid values. **Text options** (`model`, `base_url`, `api_key`, `temperature`, `max_iterations`, `timeout`, `context_window`, `system_prompt_file`, `tools_file`) open an input line with validation: an invalid value is rejected and nothing changes.
 - Every change applies live to the running session **and** is saved to `config.json` immediately, so no restart is needed.
 - Changing `language` hot-reloads all interface texts without restarting.
 - Changing `tools_file` reloads the tool configuration on the spot.
@@ -355,7 +360,7 @@ Each option maps to one `config.json` key and shows its current value:
 
 ## Tests (Sanity Tests)
 
-The suite verifies that the agent is not broken: parser, helpers, `web_search`, UTF-8 accented input (`áéíóúñ`/`ÁÉÍÓÚÑÜ` in the REPL), and real E2E flows (`/settings` menu, tool confirmations, and command autocompletion) by running `agent.py` in a pty with a simulated LLM.
+The suite verifies that the agent is not broken: parser, helpers, `web_search`, UTF-8 accented input (`áéíóúñ`/`ÁÉÍÓÚÑÜ` in the REPL), statistics (request timing, CPU/RAM/GPU samplers, status bar visible/hidden), and real E2E flows (`/settings` menu, tool confirmations, and command autocompletion) by running `agent.py` in a pty with a simulated LLM.
 
 ```bash
 ./run_tests.sh          # full suite

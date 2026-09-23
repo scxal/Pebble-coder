@@ -67,10 +67,16 @@ class ConfigGuard:
 
 
 class FakeLLM:
-    """Servidor SSE minimo que devuelve las respuestas guionizadas en orden."""
+    """Servidor SSE minimo que devuelve las respuestas guionizadas en orden.
 
-    def __init__(self, responses):
+    `usage` (opcional) se inyecta como campo `usage` del chunk (para probar
+    el conteo de tokens); `delay` (opcional) espera antes de responder.
+    """
+
+    def __init__(self, responses, usage=None, delay=0):
         self.responses = responses
+        self.usage = usage
+        self.delay = delay
         self.count = 0
         self.requests = []
         outer = self
@@ -84,8 +90,13 @@ class FakeLLM:
                 except Exception:
                     outer.requests.append(None)
                 outer.count += 1
+                if outer.delay:
+                    time.sleep(outer.delay)
                 content = responses[min(outer.count, len(responses)) - 1]
-                payload = json.dumps({"choices": [{"delta": {"content": content}}]}) + "\n"
+                chunk = {"choices": [{"delta": {"content": content}}]}
+                if outer.usage is not None:
+                    chunk["usage"] = outer.usage
+                payload = json.dumps(chunk) + "\n"
                 sse = f"data: {payload}\n\ndata: [DONE]\n\n".encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")

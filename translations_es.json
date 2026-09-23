@@ -45,6 +45,8 @@
     "label_observation": "Mostrar observación",
     "label_system_prompt_file": "Archivo de system prompt",
     "label_tools_file": "Archivo de tools",
+    "label_stats": "Barra de estadísticas",
+    "label_context_window": "Ventana de contexto",
     "menu_title_settings": "Configuración del agente",
     "cmd_settings": "Configuración del agente",
     "cmd_exit": "Salir del agente"

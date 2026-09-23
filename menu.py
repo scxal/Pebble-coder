@@ -386,6 +386,10 @@ def confirm(title: str, yes_label: Optional[str] = None, no_label: Optional[str]
 
 
 _POPUP_MAX = 8
+# Refresco de la barra de estado en reposo. DEBE superar cualquier timeout de
+# lectura de los tests E2E (max 3.0s): AgentPty.read() solo corta tras N
+# segundos de silencio, y un tick mas rapido lo mantendria en bucle.
+_STATUS_TICK = 4.0
 
 
 def _terminal_width() -> int:
@@ -398,13 +402,18 @@ def _terminal_width() -> int:
     return 80
 
 
-def command_input(prompt: str, commands: List[str], descriptions: Optional[List[str]] = None) -> str:
+def command_input(prompt: str, commands: List[str], descriptions: Optional[List[str]] = None,
+                  on_tick: Optional[Callable[[], None]] = None) -> str:
     """Linea de input con autocompletado de comandos.
 
     Al escribir '/' muestra la lista de comandos y filtra mientras se escribe.
     ↑/↓ eligen, Enter ejecuta el comando resaltado (o el texto tal cual si no
     hay lista), Tab completa, Esc abre/cierra la lista. Ctrl+C/Ctrl+D se
     propagan al llamador (salida del programa).
+
+    `on_tick` (opcional) se invoca tras cada tecla y con un timeout en
+    reposo: el llamador lo usa para refrescar su barra de estado (la barra
+    es global, no una fila de este prompt, asi que aqui no se dibuja).
     """
     if not _HAS_TTY or not sys.stdin.isatty():
         return input(prompt)
@@ -459,11 +468,18 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
         sys.stdout.flush()
         prev_rows = p_rows
         prev_popup = len(shown) + 1 if shown else 0
+        if on_tick is not None:
+            on_tick()  # la barra global se refresca tras redibujar el prompt
 
     try:
         tty.setcbreak(fd)
         redraw(first=True)
         while True:
+            if on_tick is not None:
+                ready, _, _ = select.select([fd], [], [], _STATUS_TICK)
+                if not ready:
+                    on_tick()
+                    continue
             key = _read_key(fd, quit_chars=())
 
             if key == "quit":

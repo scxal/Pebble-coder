@@ -41,6 +41,7 @@ def bold(text: str) -> str:
 from parser import parse_llm_response, ParseResult
 from tools import execute_tool, load_tools_config, parse_write_file_args
 from menu import MenuItem, command_input, confirm, run_menu
+import statistics
 
 
 # --- Translation loading ---
@@ -109,6 +110,8 @@ def load_config(config_path: str = "config.json") -> Dict[str, Any]:
             "debug": "off",
             "thought": "off",
             "observation": "off",
+            "stats": "on",
+            "context_window": 32768,
             "system_prompt_file": "system_prompt.md",
             "tools_file": "tools.json",
         }
@@ -158,6 +161,7 @@ def call_llm(messages: List[Dict[str, str]], config: Dict[str, Any]) -> str:
         response = requests.post(url, json=payload, headers=headers, timeout=timeout)
         response.raise_for_status()
         data = response.json()
+        statistics.note_usage(data.get("usage"))
         return _strip_special_tokens(data["choices"][0]["message"]["content"])
     except requests.exceptions.ConnectionError:
         raise ConnectionError(
@@ -192,6 +196,8 @@ def post_stream_request(messages: List[Dict[str, str]], config: Dict[str, Any]) 
         "messages": messages,
         "temperature": config.get("temperature", 0.2),
         "stream": True,
+        # Pedir usage en el ultimo chunk para tokens/s reales (si el servidor lo soporta).
+        "stream_options": {"include_usage": True},
     }
 
     timeout = config.get("timeout", 30)
@@ -334,8 +340,13 @@ def stream_llm(messages: List[Dict[str, str]], config: Dict[str, Any], label=Non
                 delta = (obj.get("choices") or [{}])[0].get("delta", {})
                 r_content = delta.get("reasoning_content") or ""
                 content = delta.get("content") or ""
+                usage = obj.get("usage")
             except (json.JSONDecodeError, KeyError, IndexError, TypeError, AttributeError):
                 continue
+
+            if isinstance(usage, dict):
+                statistics.note_usage(usage)
+            statistics.tick_live()
 
             if r_content:
                 has_reasoning_channel = True
@@ -447,13 +458,18 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
 
         try:
             label = thought_label if show_thought else None
+            statistics.note_context(messages)
+            statistics.begin_request()
             raw_response, thought_streamed = stream_llm(messages, config, label=label)
         except Exception as exc:
+            statistics.end_request()
             print(t('llm_connection_error').format(exc=exc))
             return t('communication_error').format(exc=exc)
 
         if raw_response is None:
             raw_response = call_llm(messages, config)
+
+        statistics.end_request(completion_text=raw_response)
 
         parsed = parse_llm_response(raw_response, format_type=format_type)
 
@@ -613,6 +629,12 @@ def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
         MenuItem(t("label_tools_file"), "text",
                  value=config.get("tools_file", "tools.json"),
                  on_change=setter("tools_file")),
+        # Filas 14-15: navegar con flechas (los digitos 1-9 cubren 9 filas).
+        MenuItem(t("label_stats"), "toggle",
+                 value=config.get("stats", "on"), on_change=setter("stats")),
+        MenuItem(t("label_context_window"), "text",
+                 value=config.get("context_window", 32768),
+                 validate=_validate_positive_int, on_change=setter("context_window")),
     ]
 
 
@@ -669,6 +691,7 @@ def main():
             stream.reconfigure(encoding="utf-8", errors="replace")
 
     config = load_config(str(_SCRIPT_DIR / "config.json"))
+    statistics.bind(config)
     tools_file = config.get("tools_file", "tools.json")
     
     # Resolve relative paths for project files
@@ -704,7 +727,9 @@ def main():
         prompt = sys.argv[2]
         if debug_mode:
             print(t('cli_task_executing').format(prompt=prompt))
+        statistics.begin_answer()
         run_react_agent(prompt, config, tools_config)
+        statistics.end_answer()
         return
 
     # Modo de ejecucion directa por argumentos CLI (sin flag)
@@ -712,7 +737,9 @@ def main():
         prompt = " ".join(sys.argv[1:])
         if debug_mode:
             print(t('cli_task_executing').format(prompt=prompt))
+        statistics.begin_answer()
         run_react_agent(prompt, config, tools_config)
+        statistics.end_answer()
         return
 
     # Info display (banner already printed above)
@@ -730,10 +757,14 @@ def main():
     command_names = [name for name, _ in commands]
     command_descs = [desc for _, desc in commands]
 
+    # Barra de estadisticas anclada a la ultima fila (se libera al salir).
+    statistics.idle_tick()
+
     history: List[Dict[str, str]] = []
     while True:
         try:
-            user_input = command_input(t("prompt"), command_names, command_descs).strip()
+            user_input = command_input(t("prompt"), command_names, command_descs,
+                                       on_tick=statistics.idle_tick).strip()
         except (KeyboardInterrupt, EOFError):
             print(t("exit_message"))
             break
@@ -747,10 +778,15 @@ def main():
 
         if user_input.startswith("/"):
             tools_config = handle_command(user_input, config, tools_config)
+            statistics.idle_tick()  # /settings pudo alternar stats en caliente
             continue
 
+        statistics.begin_answer()
         answer = run_react_agent(user_input, config, tools_config, history)
+        statistics.end_answer()
         update_history(history, user_input, answer)
+
+    statistics.deactivate_bar()
 
 
 if __name__ == "__main__":
