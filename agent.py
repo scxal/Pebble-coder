@@ -39,7 +39,7 @@ def bold(text: str) -> str:
 
 
 from parser import parse_llm_response, ParseResult
-from tools import execute_tool, load_tools_config, parse_write_file_args
+from tools import execute_tool, load_tools_config, save_tools_config, parse_write_file_args
 from menu import MenuItem, command_input, confirm, run_menu
 import statistics
 
@@ -651,8 +651,93 @@ def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[s
     return tools_config
 
 
+# Claves de tools.json que el menu /tools edita como texto numerico.
+# `description` se salta (es para el LLM, no una opcion) y cualquier clave
+# nueva que aparezca en tools.json se muestra sola como texto.
+_TOOL_INT_KEYS = ("timeout", "max_output_chars", "max_wiki_results",
+                  "max_ddg_topics", "fetch_budget")
+_TOOL_SKIP_KEYS = ("description",)
+_TOOL_LABEL_KEYS = {
+    "enabled": "label_enabled",
+    "confirm": "label_confirm",
+    "timeout": "label_timeout",
+    "max_output_chars": "label_max_output_chars",
+    "max_wiki_results": "label_max_wiki_results",
+    "max_ddg_topics": "label_max_ddg_topics",
+    "fetch_budget": "label_fetch_budget",
+    "auto_fetch": "label_auto_fetch",
+}
+
+
+def build_tool_option_items(tool_name: str, tools_config: Dict[str, Any]) -> List[MenuItem]:
+    """Filas de menu para las opciones de una herramienta de tools.json.
+
+    Booleans (enabled/confirm/auto_fetch) -> toggle; claves numericas ->
+    texto con validacion; el resto -> texto libre. Cada cambio se guarda al
+    vuelo con save_tools_config (mismo patron que /settings con save_config).
+    """
+    tool_cfg = tools_config[tool_name]
+
+    def save() -> None:
+        save_tools_config(tools_config)
+
+    def make_setter(key: str, kind: str):
+        def _set(new_value):
+            if kind == "toggle":
+                # MenuItem.flip() produce "on"/"off": tools.json exige bool.
+                tool_cfg[key] = str(new_value).strip().lower() in ("on", "true", "yes", "1")
+            elif kind == "int":
+                tool_cfg[key] = int(new_value)
+            else:
+                tool_cfg[key] = new_value
+            save()
+        return _set
+
+    items: List[MenuItem] = []
+    for key, val in tool_cfg.items():
+        if key in _TOOL_SKIP_KEYS:
+            continue
+        label = t(_TOOL_LABEL_KEYS[key]) if key in _TOOL_LABEL_KEYS else key
+        if isinstance(val, bool):
+            items.append(MenuItem(label, "toggle", value=val,
+                                  on_change=make_setter(key, "toggle")))
+        elif key in _TOOL_INT_KEYS:
+            items.append(MenuItem(label, "text", value=val,
+                                  validate=_validate_positive_int,
+                                  on_change=make_setter(key, "int")))
+        else:
+            items.append(MenuItem(label, "text", value=val,
+                                  on_change=make_setter(key, "text")))
+    return items
+
+
+def cmd_tools(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Menu interactivo de tools.json: elegir herramienta y editar sus opciones.
+
+    Dos niveles con el mismo motor que /settings: run_menu cierra al elegir
+    una fila `action`, asi el nivel 2 abre siempre con el menu anterior ya
+    cerrado (nunca hay menus anidados y el manejo de termios es el mismo).
+    Al cerrar el nivel 2 se vuelve al nivel 1; q/Esc ahi sale de /tools.
+    """
+    while True:
+        selected: List[str] = []
+        items = []
+        for name, cfg in tools_config.items():
+            state = "on" if is_enabled(cfg, "enabled", True) else "off"
+            items.append(MenuItem(f"{name} — {state}", "action",
+                                  on_action=lambda n=name: selected.append(n)))
+        run_menu(t("menu_title_tools"), items)
+        if not selected:
+            break
+        run_menu(t("menu_title_tool_options", tool=selected[0]),
+                 build_tool_option_items(selected[0], tools_config))
+    print(t("menu_closed"))
+    return tools_config
+
+
 COMMANDS = {
     "/settings": cmd_settings,
+    "/tools": cmd_tools,
 }
 
 EXIT_COMMANDS = ("/exit", "/quit")
@@ -670,7 +755,7 @@ def load_commands(path: str = "commands.json") -> List[Tuple[str, str]]:
         except (json.JSONDecodeError, OSError, AttributeError):
             entries = {}
     if not entries:
-        entries = {"/settings": "cmd_settings", "/exit": "cmd_exit"}
+        entries = {"/settings": "cmd_settings", "/tools": "cmd_tools", "/exit": "cmd_exit"}
     return [(name, t(key)) for name, key in entries.items()]
 
 

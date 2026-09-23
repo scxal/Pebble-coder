@@ -37,6 +37,8 @@ KNOWN_CONFIG = {
     "observation": "off",
 }
 
+TOOLS = PROJECT / "tools.json"
+
 
 def net_ok(timeout=4):
     """True si hay salida a internet (para saltar tests de red)."""
@@ -48,22 +50,33 @@ def net_ok(timeout=4):
 
 
 class ConfigGuard:
-    """Respalda config.json, escribe overrides conocidos y restaura al salir."""
+    """Respalda un .json, aplica overrides conocidos y restaura al salir.
 
-    def __init__(self, overrides=None):
+    `target` permite guardar otros ficheros (p. ej. tools.json con ToolsGuard).
+    """
+
+    def __init__(self, overrides=None, target=None):
         self.overrides = overrides or {}
+        self.target = target or CONFIG
         self.original = None
 
     def __enter__(self):
-        self.original = CONFIG.read_bytes()
+        self.original = self.target.read_bytes()
         cfg = json.loads(self.original)
         cfg.update(self.overrides)
-        CONFIG.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.target.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return cfg
 
     def __exit__(self, *exc):
-        CONFIG.write_bytes(self.original)
+        self.target.write_bytes(self.original)
         return False
+
+
+class ToolsGuard(ConfigGuard):
+    """Igual que ConfigGuard pero para tools.json."""
+
+    def __init__(self, overrides=None):
+        super().__init__(overrides, target=TOOLS)
 
 
 class FakeLLM:

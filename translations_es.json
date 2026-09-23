@@ -47,8 +47,18 @@
     "label_tools_file": "Archivo de tools",
     "label_stats": "Barra de estadísticas",
     "label_context_window": "Ventana de contexto",
+    "label_enabled": "Habilitada",
+    "label_confirm": "Pedir confirmación",
+    "label_max_output_chars": "Máx. caracteres de salida",
+    "label_max_wiki_results": "Máx. resultados de Wikipedia",
+    "label_max_ddg_topics": "Máx. temas de DDG",
+    "label_fetch_budget": "Presupuesto de fetch (chars)",
+    "label_auto_fetch": "Auto fetch",
     "menu_title_settings": "Configuración del agente",
+    "menu_title_tools": "Herramientas (tools.json)",
+    "menu_title_tool_options": "Opciones de {tool}",
     "cmd_settings": "Configuración del agente",
+    "cmd_tools": "Editar herramientas",
     "cmd_exit": "Salir del agente"
   },
   "menu": {

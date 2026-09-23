@@ -17,8 +17,9 @@ class TestCommandAutocomplete(unittest.TestCase):
 
             term.send(b"/")
             pop = term.read(1.0)
-            with self.subTest("popup on '/' lists both commands"):
+            with self.subTest("popup on '/' lists all commands"):
                 self.assertIn("/settings — Configuración del agente", pop)
+                self.assertIn("/tools — Editar herramientas", pop)
                 self.assertIn("/exit — Salir del agente", pop)
             with self.subTest("popup hint shown"):
                 self.assertIn("Enter: ejecutar", pop)
@@ -38,6 +39,9 @@ class TestCommandAutocomplete(unittest.TestCase):
 
             term.send(b"/")
             term.read(0.8)
+            term.send(b"\x1b[B")  # down -> /tools
+            with self.subTest("arrow selects /tools"):
+                self.assertIn("❯ /tools", term.read(0.8))
             term.send(b"\x1b[B")  # down -> /exit
             with self.subTest("arrow selects /exit"):
                 self.assertIn("❯ /exit", term.read(0.8))
@@ -70,7 +74,7 @@ class TestCommandAutocomplete(unittest.TestCase):
             unk = term.read(1.0)
             with self.subTest("unknown command lists all commands"):
                 self.assertIn("Comando desconocido: /foo", unk)
-                self.assertIn("/settings, /exit, /quit", unk)
+                self.assertIn("/settings, /tools, /exit, /quit", unk)
 
             term.send(b"/exit\r")
             term.read(1.0)

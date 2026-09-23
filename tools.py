@@ -528,6 +528,16 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
         return json.load(f)
 
 
+def save_tools_config(tools_config: Dict[str, Any], path: str = "tools.json") -> None:
+    """Guarda tools.json preservando el orden de claves (mismo estilo que load)."""
+    config_path = Path(path)
+    if not config_path.is_absolute() and not config_path.exists():
+        config_path = Path(__file__).resolve().parent / config_path
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(tools_config, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
 def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> str:
     action = action.strip()
     tool_cfg = tools_config.get(action)

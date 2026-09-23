@@ -87,7 +87,7 @@ class TestSettingsMenu(unittest.TestCase):
             with self.subTest("unknown command lists all commands"):
                 unk = term.read(0.8)
                 self.assertIn("Unknown command: /foo", unk)
-                self.assertIn("/settings, /exit, /quit", unk)
+                self.assertIn("/settings, /tools, /exit, /quit", unk)
 
             term.send(b"/exit\r")
             with self.subTest("agent exits cleanly"):

@@ -314,6 +314,7 @@ python3 agent.py "Read config.json and tell me which model is selected"
 The console supports commands that start with `/`:
 
 - **`/settings`**: opens the interactive settings menu (explained below).
+- **`/tools`**: two-level menu to edit `tools.json` — the first level lists every tool with its enabled state, selecting one opens its options (`enabled`, `confirm`, `timeout`, `max_output_chars`, `max_wiki_results`, `max_ddg_topics`, `fetch_budget`, `auto_fetch`; `description` is not editable since it is read by the model). Every change saves to `tools.json` immediately; `q` goes back / exits. Rows 1-9 are reachable by digit, the rest by arrows.
 - **`/exit`** (alias `/quit`): closes the agent.
 - **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list.
 - **Line editing:** the block cursor marks where input goes: `←/→` move it, text is inserted at it, `Backspace` deletes before it, `Delete` deletes at it, `Home`/`End` jump to the start/end of the line.
