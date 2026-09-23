@@ -318,6 +318,7 @@ The console supports commands that start with `/`:
 - **`/exit`** (alias `/quit`): closes the agent.
 - **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list.
 - **Line editing:** the block cursor marks where input goes: `←/→` move it, text is inserted at it, `Backspace` deletes before it, `Delete` deletes at it, `Home`/`End` jump to the start/end of the line.
+- **Multi-line prompts (paste):** bracketed paste is enabled at the prompt, so pasting text with several lines inserts it ALL into the input (nothing is sent) — press `Enter` once to submit the whole thing as a single prompt. CRLF/CR from Windows clipboards is normalized to LF. Requires an xterm-compatible terminal (gnome-terminal, konsole, etc.); with older terminals you can still use `/editor`-style one-liners only.
 
 The command list lives in `commands.json` (command name → i18n key of its description).
 

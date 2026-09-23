@@ -145,6 +145,11 @@ class MenuItem:
 _CANCELLED = object()
 _INVALID = object()
 _KEY_TIMEOUT = 0.05
+# Bracketed paste: el terminal envuelve los pegados en \x1b[200~ ... \x1b[201~
+# para que sus \n internos NO se interpreten como Enter.
+_PASTE_END = b"\x1b[201~"
+_PASTE_GAP_TIMEOUT = 0.5  # pausa maxima entre bytes de un mismo pegado
+_PASTE_MAX = 1_000_000    # tope de seguridad del payload
 
 
 def _read_utf8_char(fd: int) -> str:
@@ -189,7 +194,7 @@ def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
     if ch in ("", "\x04"):
         return "quit"
     if ch == "\x1b":
-        pending, _, _ = select.select([sys.stdin], [], [], _KEY_TIMEOUT)
+        pending, _, _ = select.select([fd], [], [], _KEY_TIMEOUT)
         if not pending:
             return "esc"
         if os.read(fd, 1).decode("utf-8", errors="replace") != "[":
@@ -198,7 +203,7 @@ def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
         # p.ej. 'A' (up), 'D' (left), '3~' (delete), '1~' (home).
         seq = ""
         while True:
-            pending, _, _ = select.select([sys.stdin], [], [], _KEY_TIMEOUT)
+            pending, _, _ = select.select([fd], [], [], _KEY_TIMEOUT)
             if not pending:
                 return "unknown"
             nxt = os.read(fd, 1).decode("utf-8", errors="replace")
@@ -221,6 +226,8 @@ def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
             return "end"
         if seq == "3~":
             return "delete"
+        if seq == "200~":
+            return "paste"
         return "unknown"
     if ch in ("\r", "\n"):
         return "enter"
@@ -231,6 +238,33 @@ def _read_key(fd: int, quit_chars: tuple = ("q", "Q")) -> str:
     if ch == "\t":
         return "tab"
     return ch
+
+
+def _read_paste(fd: int) -> str:
+    """Lee el payload de un pegado bracketed hasta \\x1b[201~.
+
+    Byte a byte para no consumir nada posterior al terminador; si no llega
+    (terminal sin 2004) se devuelve lo acumulado tras _PASTE_GAP_TIMEOUT.
+    CRLF/CR se normalizan a LF (el modo crudo no traduce \r).
+    """
+    buf = bytearray()
+    while len(buf) < _PASTE_MAX:
+        ready, _, _ = select.select([fd], [], [], _PASTE_GAP_TIMEOUT)
+        if not ready:
+            break
+        b = os.read(fd, 1)
+        if not b:
+            break
+        buf += b
+        if bytes(buf[-len(_PASTE_END):]) == _PASTE_END:
+            payload = bytes(buf[:-len(_PASTE_END)])
+            return payload.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    # Sin terminador: descarta un posible terminador parcial al final.
+    for k in range(len(_PASTE_END) - 1, 0, -1):
+        if bytes(buf[-k:]) == _PASTE_END[:k]:
+            buf = buf[:-k]
+            break
+    return bytes(buf).decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _edit_value(item: MenuItem) -> Any:
@@ -402,6 +436,18 @@ def _terminal_width() -> int:
     return 80
 
 
+def _wrapped_rows(text: str, width: int) -> int:
+    """Filas que ocupa `text` (con \\n explicitos) estimando el wrap por ancho.
+
+    Con un solo tramo equivale a la formula previa de command_input
+    (ceil((L+1)/width)), asi que el comportamiento sin pegados no cambia.
+    """
+    rows = 0
+    for seg in text.split("\n"):
+        rows += max(1, -(-(len(seg) + 1) // width))
+    return rows
+
+
 def command_input(prompt: str, commands: List[str], descriptions: Optional[List[str]] = None,
                   on_tick: Optional[Callable[[], None]] = None) -> str:
     """Linea de input con autocompletado de comandos.
@@ -414,6 +460,11 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
     `on_tick` (opcional) se invoca tras cada tecla y con un timeout en
     reposo: el llamador lo usa para refrescar su barra de estado (la barra
     es global, no una fila de este prompt, asi que aqui no se dibuja).
+
+    Pegado multilinea: se activa bracketed paste (`\033[?2004h`), de modo
+    que el terminal envuelve los pegados en `\x1b[200~ ... \x1b[201~` y el
+    texto se INSERTA completo (saltos incluidos) en el buffer; solo una
+    pulsacion real de Enter envia el prompt.
     """
     if not _HAS_TTY or not sys.stdin.isatty():
         return input(prompt)
@@ -438,7 +489,7 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
         nonlocal prev_rows, prev_popup
         shown = matched()[:_POPUP_MAX] if show_popup else []
         width = _terminal_width()
-        in_rows = max(1, -(-(len(prompt) + len(buffer) + 1) // width))
+        in_rows = _wrapped_rows(prompt + buffer, width)
         p_rows = in_rows + (len(shown) + 1 if shown else 0)
 
         if not first:
@@ -473,6 +524,14 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
 
     try:
         tty.setcbreak(fd)
+        # Sin ICRNL: un \r literal (tecla Enter o dentro de un pegado) llega
+        # tal cual; _read_key acepta \r y \n como Enter igualmente.
+        attrs = termios.tcgetattr(fd)
+        attrs[0] &= ~(termios.ICRNL | termios.INLCR | termios.IGNCR)
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        # Bracketed paste ON: los pegados vienen envueltos en 200~/201~.
+        sys.stdout.write("\033[?2004h")
+        sys.stdout.flush()
         redraw(first=True)
         while True:
             if on_tick is not None:
@@ -522,6 +581,14 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
                     pos -= 1
                 sel = 0
                 show_popup = True
+            elif key == "paste":
+                # Pegado multilinea: se inserta entero; NO se envia.
+                text = _read_paste(fd)
+                if text:
+                    buffer = buffer[:pos] + text + buffer[pos:]
+                    pos += len(text)
+                    sel = 0
+                    show_popup = True
             elif len(key) == 1 and key >= " ":
                 buffer = buffer[:pos] + key + buffer[pos:]
                 pos += 1
@@ -538,7 +605,7 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
         return buffer
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
-        sys.stdout.write("\033[?25h")
+        sys.stdout.write("\033[?25h\033[?2004l")  # cursor visible + bracketed paste OFF
         if prev_popup:
             sys.stdout.write(f"\033[{prev_popup}A\r")
             for _ in range(prev_popup):
