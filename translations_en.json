@@ -45,6 +45,7 @@
     "label_observation": "Show observation",
     "label_system_prompt_file": "System prompt file",
     "label_tools_file": "Tools file",
+    "label_editor": "External editor",
     "label_stats": "Statistics bar",
     "label_context_window": "Context window",
     "label_enabled": "Enabled",
@@ -59,7 +60,11 @@
     "menu_title_tool_options": "Options for {tool}",
     "cmd_settings": "Agent settings",
     "cmd_tools": "Edit tools",
-    "cmd_exit": "Exit the agent"
+    "cmd_editor": "Write prompt in external editor",
+    "cmd_exit": "Exit the agent",
+    "editor_empty": "Empty editor, prompt cancelled.",
+    "editor_unavailable": "Could not open editor '{editor}': {exc}",
+    "editor_read_failed": "Could not read the edited prompt: {exc}"
   },
   "menu": {
     "menu_hint": "↑/↓ or 1-9: select · Enter: edit · q: quit",

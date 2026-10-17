@@ -2,6 +2,7 @@
   "commands": {
     "/settings": "cmd_settings",
     "/tools": "cmd_tools",
+    "/editor": "cmd_editor",
     "/exit": "cmd_exit"
   }
 }

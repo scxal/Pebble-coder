@@ -13,5 +13,6 @@
   "stats": "on",
   "context_window": 32768,
   "system_prompt_file": "system_prompt.md",
-  "tools_file": "tools.json"
+  "tools_file": "tools.json",
+  "editor": "vi"
 }

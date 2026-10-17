@@ -45,6 +45,7 @@
     "label_observation": "Mostrar observación",
     "label_system_prompt_file": "Archivo de system prompt",
     "label_tools_file": "Archivo de tools",
+    "label_editor": "Editor externo",
     "label_stats": "Barra de estadísticas",
     "label_context_window": "Ventana de contexto",
     "label_enabled": "Habilitada",
@@ -59,7 +60,11 @@
     "menu_title_tool_options": "Opciones de {tool}",
     "cmd_settings": "Configuración del agente",
     "cmd_tools": "Editar herramientas",
-    "cmd_exit": "Salir del agente"
+    "cmd_editor": "Escribir prompt en editor externo",
+    "cmd_exit": "Salir del agente",
+    "editor_empty": "Editor vacío, prompt cancelado.",
+    "editor_unavailable": "No se pudo abrir el editor '{editor}': {exc}",
+    "editor_read_failed": "No se pudo leer el prompt editado: {exc}"
   },
   "menu": {
     "menu_hint": "↑/↓ o 1-9: seleccionar · Enter: editar · q: salir",

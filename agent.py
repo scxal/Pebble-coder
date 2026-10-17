@@ -3,7 +3,10 @@ import json
 import os
 import readline
 import re
+import shlex
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -114,6 +117,7 @@ def load_config(config_path: str = "config.json") -> Dict[str, Any]:
             "context_window": 32768,
             "system_prompt_file": "system_prompt.md",
             "tools_file": "tools.json",
+            "editor": "vi",
         }
 
     with open(path, "r", encoding="utf-8") as f:
@@ -629,6 +633,9 @@ def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
         MenuItem(t("label_tools_file"), "text",
                  value=config.get("tools_file", "tools.json"),
                  on_change=setter("tools_file")),
+        MenuItem(t("label_editor"), "text",
+                 value=config.get("editor", "vi"),
+                 on_change=setter("editor")),
         # Filas 14-15: navegar con flechas (los digitos 1-9 cubren 9 filas).
         MenuItem(t("label_stats"), "toggle",
                  value=config.get("stats", "on"), on_change=setter("stats")),
@@ -638,8 +645,8 @@ def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
     ]
 
 
-def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Menu interactivo de configuracion. Devuelve tools_config (recargado si cambia)."""
+def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Menu interactivo de configuracion. Devuelve (tools_config, prompt)."""
     original_tools_file = config.get("tools_file", "tools.json")
     run_menu(t("menu_title_settings"), build_settings_items(config))
     if config.get("tools_file", "tools.json") != original_tools_file:
@@ -648,7 +655,7 @@ def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[s
             tools_file = str(_SCRIPT_DIR / tools_file)
         tools_config = load_tools_config(tools_file)
     print(t("menu_closed"))
-    return tools_config
+    return tools_config, None
 
 
 # Claves de tools.json que el menu /tools edita como texto numerico.
@@ -711,7 +718,7 @@ def build_tool_option_items(tool_name: str, tools_config: Dict[str, Any]) -> Lis
     return items
 
 
-def cmd_tools(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[str, Any]:
+def cmd_tools(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
     """Menu interactivo de tools.json: elegir herramienta y editar sus opciones.
 
     Dos niveles con el mismo motor que /settings: run_menu cierra al elegir
@@ -732,12 +739,46 @@ def cmd_tools(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[str,
         run_menu(t("menu_title_tool_options", tool=selected[0]),
                  build_tool_option_items(selected[0], tools_config))
     print(t("menu_closed"))
-    return tools_config
+    return tools_config, None
+
+
+def cmd_editor(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Abre $editor (config: "editor", por defecto "vi") sobre un fichero tmp.
+
+    Al salir del editor, su contenido se devuelve como prompt (multilinea) para
+    que el REPL lo ejecute como un turno normal. Un buffer vacio cancela.
+    """
+    editor = str(config.get("editor") or "vi").strip() or "vi"
+    fd, tmp_path = tempfile.mkstemp(prefix="pebble_editor_", suffix=".md")
+    os.close(fd)
+    # El editor ocupa la pantalla completa: libera la region de scroll de la barra.
+    statistics.deactivate_bar()
+    try:
+        try:
+            subprocess.run(shlex.split(editor) + [tmp_path])
+        except (OSError, ValueError) as exc:
+            print(red(t("editor_unavailable").format(editor=editor, exc=exc)))
+            return tools_config, None
+        try:
+            content = Path(tmp_path).read_text(encoding="utf-8", errors="replace").strip()
+        except OSError as exc:
+            print(red(t("editor_read_failed").format(exc=exc)))
+            return tools_config, None
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+    if not content:
+        print(t("editor_empty"))
+        return tools_config, None
+    return tools_config, content
 
 
 COMMANDS = {
     "/settings": cmd_settings,
     "/tools": cmd_tools,
+    "/editor": cmd_editor,
 }
 
 EXIT_COMMANDS = ("/exit", "/quit")
@@ -755,17 +796,19 @@ def load_commands(path: str = "commands.json") -> List[Tuple[str, str]]:
         except (json.JSONDecodeError, OSError, AttributeError):
             entries = {}
     if not entries:
-        entries = {"/settings": "cmd_settings", "/tools": "cmd_tools", "/exit": "cmd_exit"}
+        entries = {"/settings": "cmd_settings", "/tools": "cmd_tools",
+                   "/editor": "cmd_editor", "/exit": "cmd_exit"}
     return [(name, t(key)) for name, key in entries.items()]
 
 
-def handle_command(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Ejecuta un comando '/xxx'. Devuelve tools_config (puede recargarse)."""
+def handle_command(user_input: str, config: Dict[str, Any],
+                   tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Ejecuta un comando '/xxx'. Devuelve (tools_config, prompt opcional)."""
     cmd = user_input.strip().split()[0].lower()
     handler = COMMANDS.get(cmd)
     if handler is None:
         print(red(t("unknown_command").format(cmd=cmd, commands=", ".join(list(COMMANDS) + list(EXIT_COMMANDS)))))
-        return tools_config
+        return tools_config, None
     return handler(config, tools_config)
 
 
@@ -846,6 +889,13 @@ def main():
     statistics.idle_tick()
 
     history: List[Dict[str, str]] = []
+
+    def run_turn(prompt: str) -> None:
+        statistics.begin_answer()
+        answer = run_react_agent(prompt, config, tools_config, history)
+        statistics.end_answer()
+        update_history(history, prompt, answer)
+
     while True:
         try:
             user_input = command_input(t("prompt"), command_names, command_descs,
@@ -862,14 +912,13 @@ def main():
             break
 
         if user_input.startswith("/"):
-            tools_config = handle_command(user_input, config, tools_config)
-            statistics.idle_tick()  # /settings pudo alternar stats en caliente
+            tools_config, prompt = handle_command(user_input, config, tools_config)
+            statistics.idle_tick()  # /settings o /editor pudieron alternar stats en caliente
+            if prompt:
+                run_turn(prompt)
             continue
 
-        statistics.begin_answer()
-        answer = run_react_agent(user_input, config, tools_config, history)
-        statistics.end_answer()
-        update_history(history, user_input, answer)
+        run_turn(user_input)
 
     statistics.deactivate_bar()
 

@@ -42,6 +42,9 @@ class TestCommandAutocomplete(unittest.TestCase):
             term.send(b"\x1b[B")  # down -> /tools
             with self.subTest("arrow selects /tools"):
                 self.assertIn("❯ /tools", term.read(0.8))
+            term.send(b"\x1b[B")  # down -> /editor
+            with self.subTest("arrow selects /editor"):
+                self.assertIn("❯ /editor", term.read(0.8))
             term.send(b"\x1b[B")  # down -> /exit
             with self.subTest("arrow selects /exit"):
                 self.assertIn("❯ /exit", term.read(0.8))
@@ -74,7 +77,7 @@ class TestCommandAutocomplete(unittest.TestCase):
             unk = term.read(1.0)
             with self.subTest("unknown command lists all commands"):
                 self.assertIn("Comando desconocido: /foo", unk)
-                self.assertIn("/settings, /tools, /exit, /quit", unk)
+                self.assertIn("/settings, /tools, /editor, /exit, /quit", unk)
 
             term.send(b"/exit\r")
             term.read(1.0)

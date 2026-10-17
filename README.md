@@ -160,7 +160,8 @@ Edit `config.json` with any text editor:
   "stats": "on",
   "context_window": 32768,
   "system_prompt_file": "system_prompt.md",
-  "tools_file": "tools.json"
+  "tools_file": "tools.json",
+  "editor": "vi"
 }
 ```
 
@@ -183,6 +184,7 @@ Edit `config.json` with any text editor:
 | `context_window` | int | `32768` | Nominal model window displayed by the status bar's `ctx` metric |
 | `system_prompt_file` | string | `.md` path | System prompt file |
 | `tools_file` | string | `.json` path | Tool configuration file |
+| `editor` | string | `"vi"`, `"nano"`, `"code -w"`... | Editor launched by the `/editor` command (default `vi`); args allowed |
 
 ---
 
@@ -314,6 +316,7 @@ python3 agent.py "Read config.json and tell me which model is selected"
 The console supports commands that start with `/`:
 
 - **`/settings`**: opens the interactive settings menu (explained below).
+- **`/editor`**: opens the editor configured in `config.json` (`editor`, default `vi`) on a temporary file. When you save and close the editor, its content is sent as **one multi-line prompt** (an empty buffer cancels). Handy for long or multi-line prompts without pasting.
 - **`/tools`**: two-level menu to edit `tools.json` — the first level lists every tool with its enabled state, selecting one opens its options (`enabled`, `confirm`, `timeout`, `max_output_chars`, `max_wiki_results`, `max_ddg_topics`, `fetch_budget`, `auto_fetch`; `description` is not editable since it is read by the model). Every change saves to `tools.json` immediately; `q` goes back / exits. Rows 1-9 are reachable by digit, the rest by arrows.
 - **`/exit`** (alias `/quit`): closes the agent.
 - **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list.
