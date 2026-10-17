@@ -3,6 +3,8 @@
     "/settings": "cmd_settings",
     "/tools": "cmd_tools",
     "/editor": "cmd_editor",
+    "/agent": "cmd_agent",
+    "/skills": "cmd_skills",
     "/exit": "cmd_exit"
   }
 }

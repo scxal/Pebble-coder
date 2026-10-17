@@ -12,38 +12,15 @@ from typing import Dict, Any, List, Tuple, Optional
 
 import requests
 
-
-def c(text: str, code: str) -> str:
-    return f"\033[{code}m{text}\033[0m"
-
-
-def green(text: str) -> str:
-    return c(text, "38;5;40")
-
-
-def blue(text: str) -> str:
-    return c(text, "48;5;21;38;5;231")
-
-
-def cyan(text: str) -> str:
-    return c(text, "36")
-
-
-def yellow(text: str) -> str:
-    return c(text, "33;1")
-
-
-def red(text: str) -> str:
-    return c(text, "31;1")
-
-
-def bold(text: str) -> str:
-    return c(text, "1")
+import theme
+from theme import c, green, blue, cyan, yellow, red, bold, dim
 
 
 from parser import parse_llm_response, ParseResult
 from tools import execute_tool, load_tools_config, save_tools_config, parse_write_file_args
 from menu import MenuItem, command_input, confirm, run_menu
+import agents
+import skills
 import statistics
 
 
@@ -118,6 +95,10 @@ def load_config(config_path: str = "config.json") -> Dict[str, Any]:
             "system_prompt_file": "system_prompt.md",
             "tools_file": "tools.json",
             "editor": "vi",
+            "agents_dir": ".pbl/agents",
+            "agent": "",
+            "skills_dir": ".pbl/skills",
+            "skills": [],
         }
 
     with open(path, "r", encoding="utf-8") as f:
@@ -440,6 +421,14 @@ def update_history(history: List[Dict[str, str]], user_input: str, answer: str) 
 def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any],
                     history: Optional[List[Dict[str, str]]] = None) -> str:
     system_prompt = load_system_prompt(config)
+    # El agente activo (config `agent`) es un prompt ADICIONAL, no un reemplazo.
+    agent_prompt = agents.active_agent_prompt(config)
+    if agent_prompt:
+        system_prompt = f"{system_prompt}\n\n{agent_prompt}"
+    # Skills activas: procedimientos extra, limitados a los del agente si hay uno.
+    skills_prompt = skills.active_skills_prompt(config)
+    if skills_prompt:
+        system_prompt = f"{system_prompt}\n\n{skills_prompt}"
     format_type = config.get("format", "text").lower()
     max_iterations = int(config.get("max_iterations", 10))
 
@@ -636,12 +625,22 @@ def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
         MenuItem(t("label_editor"), "text",
                  value=config.get("editor", "vi"),
                  on_change=setter("editor")),
-        # Filas 14-15: navegar con flechas (los digitos 1-9 cubren 9 filas).
+        MenuItem(t("label_agents_dir"), "text",
+                 value=config.get("agents_dir", ".pbl/agents"),
+                 on_change=setter("agents_dir")),
+        MenuItem(t("label_skills_dir"), "text",
+                 value=config.get("skills_dir", ".pbl/skills"),
+                 on_change=setter("skills_dir")),
+        # Filas 17-19: navegar con flechas (los digitos 1-9 cubren 9 filas).
         MenuItem(t("label_stats"), "toggle",
                  value=config.get("stats", "on"), on_change=setter("stats")),
         MenuItem(t("label_context_window"), "text",
                  value=config.get("context_window", 32768),
                  validate=_validate_positive_int, on_change=setter("context_window")),
+        MenuItem(t("label_theme"), "choice",
+                 value=config.get("theme", theme.DEFAULT_THEME),
+                 choices=theme.available_themes(),
+                 on_change=setter("theme", after=lambda value: theme.set_theme(value))),
     ]
 
 
@@ -775,10 +774,101 @@ def cmd_editor(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Di
     return tools_config, content
 
 
+_DOC_REASON_KEYS = {
+    "no_header": "agent_reason_no_header",
+    "missing_fields": "agent_reason_missing_fields",
+    "too_long": "agent_reason_too_long",
+    "empty_body": "agent_reason_empty_body",
+    "read_error": "agent_reason_read_error",
+}
+
+
+def cmd_agent(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Selector de agente: prompts adicionales indexados desde agents_dir."""
+    directory = agents.resolve_dir(str(config.get("agents_dir") or ".pbl/agents"))
+    infos = agents.load_agents(directory)
+    valid = [info for info in infos if info.valid]
+    for bad in infos:
+        if not bad.valid:
+            key = _DOC_REASON_KEYS.get(bad.reason, "")
+            reason = t(key) if key else bad.reason
+            print(yellow(t("agent_invalid").format(path=bad.path.name, reason=reason)))
+
+    current = str(config.get("agent") or "").strip()
+    selected: List[str] = []
+    items: List[MenuItem] = []
+    for info in valid:
+        mark = " ●" if info.name == current else ""
+        items.append(MenuItem(f"{info.name}{mark} — {info.description}", "action",
+                              on_action=lambda n=info.name: selected.append(n)))
+    items.append(MenuItem(t("agent_none"), "action",
+                          on_action=lambda: selected.append("")))
+
+    if not valid:
+        print(t("agent_none_found"))
+    run_menu(t("menu_title_agent"), items)
+
+    if selected:
+        config["agent"] = selected[0]
+        save_config(config)
+        if selected[0]:
+            print(t("agent_selected").format(name=selected[0]))
+        else:
+            print(t("agent_cleared"))
+    else:
+        print(t("menu_closed"))
+    return tools_config, None
+
+
+def cmd_skills(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Selector de skills: procedimientos accesibles segun el agente activo.
+
+    Reglas: con agente activo solo se listan las skills de su header `skills`;
+    sin agente, todas las skills validas. Cada fila es un toggle que activa o
+    desactiva el procedimiento (se guarda en config `skills` de inmediato).
+    """
+    directory = skills.resolve_dir(str(config.get("skills_dir") or ".pbl/skills"))
+    infos = skills.load_skills(directory)
+    for bad in infos:
+        if not bad.valid:
+            key = _DOC_REASON_KEYS.get(bad.reason, "")
+            reason = t(key) if key else bad.reason
+            print(yellow(t("skill_invalid").format(path=bad.path.name, reason=reason)))
+
+    allowed = skills.allowed_names(config)
+    visible = [i for i in infos if i.valid and (allowed is None or i.name in allowed)]
+    if not visible:
+        print(t("skills_none_found"))
+        return tools_config, None
+
+    enabled = set(skills.enabled_names(config))
+
+    def make_toggle(name: str):
+        def _set(new_value):
+            if str(new_value).strip().lower() in ("on", "true", "yes", "1"):
+                enabled.add(name)
+            else:
+                enabled.discard(name)
+            config["skills"] = sorted(enabled)
+            save_config(config)
+        return _set
+
+    items = [
+        MenuItem(f"{info.name} — {info.description}", "toggle",
+                 value=(info.name in enabled), on_change=make_toggle(info.name))
+        for info in visible
+    ]
+    run_menu(t("menu_title_skills"), items)
+    print(t("menu_closed"))
+    return tools_config, None
+
+
 COMMANDS = {
     "/settings": cmd_settings,
     "/tools": cmd_tools,
     "/editor": cmd_editor,
+    "/agent": cmd_agent,
+    "/skills": cmd_skills,
 }
 
 EXIT_COMMANDS = ("/exit", "/quit")
@@ -797,8 +887,29 @@ def load_commands(path: str = "commands.json") -> List[Tuple[str, str]]:
             entries = {}
     if not entries:
         entries = {"/settings": "cmd_settings", "/tools": "cmd_tools",
-                   "/editor": "cmd_editor", "/exit": "cmd_exit"}
+                   "/editor": "cmd_editor", "/agent": "cmd_agent",
+                   "/skills": "cmd_skills", "/exit": "cmd_exit"}
     return [(name, t(key)) for name, key in entries.items()]
+
+
+def skill_commands(config: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """Skills accesibles como comandos `/<skill>` para el autocompletado.
+
+    Se listan todas las skills permitidas (regla 1/2), activadas o no, para
+    poder disparar su procedimiento escribiendo su nombre.
+    """
+    return [(f"/{info.name}", info.description) for info in skills.visible_skills(config)]
+
+
+def _skill_command_body(cmd: str, config: Dict[str, Any]) -> Optional[str]:
+    """Cuerpo de la skill cuyo comando es `cmd` (`/nombre`), o None."""
+    if not cmd.startswith("/"):
+        return None
+    name = cmd[1:]
+    for info in skills.visible_skills(config):
+        if info.name == name:
+            return info.body
+    return None
 
 
 def handle_command(user_input: str, config: Dict[str, Any],
@@ -807,6 +918,11 @@ def handle_command(user_input: str, config: Dict[str, Any],
     cmd = user_input.strip().split()[0].lower()
     handler = COMMANDS.get(cmd)
     if handler is None:
+        # `/nombre` de una skill accesible: dispara su procedimiento como turno.
+        body = _skill_command_body(cmd, config)
+        if body is not None:
+            print(green("  " + t("skill_running").format(name=cmd)))
+            return tools_config, body
         print(red(t("unknown_command").format(cmd=cmd, commands=", ".join(list(COMMANDS) + list(EXIT_COMMANDS)))))
         return tools_config, None
     return handler(config, tools_config)
@@ -819,6 +935,7 @@ def main():
             stream.reconfigure(encoding="utf-8", errors="replace")
 
     config = load_config(str(_SCRIPT_DIR / "config.json"))
+    theme.set_theme(str(config.get("theme", theme.DEFAULT_THEME)))
     statistics.bind(config)
     tools_file = config.get("tools_file", "tools.json")
     
@@ -881,10 +998,6 @@ def main():
     print(t("exit_prompt"))
     print("-" * 60)
 
-    commands = load_commands()
-    command_names = [name for name, _ in commands]
-    command_descs = [desc for _, desc in commands]
-
     # Barra de estadisticas anclada a la ultima fila (se libera al salir).
     statistics.idle_tick()
 
@@ -897,18 +1010,25 @@ def main():
         update_history(history, prompt, answer)
 
     while True:
+        # Reconstruido cada turno: refleja cambios de agente y skills nuevas en
+        # disco sin reiniciar (antes se calculaba una sola vez al arrancar).
+        commands = load_commands() + skill_commands(config)
+        command_names = [name for name, _ in commands]
+        command_descs = [desc for _, desc in commands]
+        prompt_label = t("prompt")
+        active = agents.active_agent(config)
+        if active:
+            prompt_label = t("prompt_with_agent").format(name=active.name)
         try:
-            user_input = command_input(t("prompt"), command_names, command_descs,
+            user_input = command_input(prompt_label, command_names, command_descs,
                                        on_tick=statistics.idle_tick).strip()
         except (KeyboardInterrupt, EOFError):
-            print(t("exit_message"))
             break
 
         if not user_input:
             continue
 
         if user_input.lower() in EXIT_COMMANDS:
-            print(t("exit_message"))
             break
 
         if user_input.startswith("/"):
@@ -921,6 +1041,10 @@ def main():
         run_turn(user_input)
 
     statistics.deactivate_bar()
+    if sys.stdout.isatty():
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
+    print(t("exit_message"))
 
 
 if __name__ == "__main__":

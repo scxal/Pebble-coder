@@ -28,33 +28,8 @@ except ImportError:
     _HAS_TTY = False
 
 
-# --- Colores ---
-def c(text: str, code: str) -> str:
-    return f"\033[{code}m{text}\033[0m"
-
-
-def green(text: str) -> str:
-    return c(text, "38;5;40")
-
-
-def cyan(text: str) -> str:
-    return c(text, "36")
-
-
-def yellow(text: str) -> str:
-    return c(text, "33;1")
-
-
-def red(text: str) -> str:
-    return c(text, "31;1")
-
-
-def bold(text: str) -> str:
-    return c(text, "1")
-
-
-def dim(text: str) -> str:
-    return c(text, "90")
+# --- Colores (tema central) ---
+from theme import c, green, cyan, yellow, red, bold, dim
 
 
 # --- Traducciones (seccion "menu") ---
@@ -448,6 +423,23 @@ def _wrapped_rows(text: str, width: int) -> int:
     return rows
 
 
+def _match_rank(command_lower: str, query_lower: str) -> Optional[int]:
+    """Orden de coincidencia de un comando con lo tecleado.
+
+    0 = prefijo, 1 = subcadena, 2 = subsecuencia (difusa, p. ej. '/rlt' ->
+    '/responsive-layout'); None si el comando no encaja.
+    """
+    if command_lower.startswith(query_lower):
+        return 0
+    if query_lower in command_lower:
+        return 1
+    chars = iter(command_lower)
+    for ch in query_lower:
+        if not any(c == ch for c in chars):
+            return None
+    return 2
+
+
 def command_input(prompt: str, commands: List[str], descriptions: Optional[List[str]] = None,
                   on_tick: Optional[Callable[[], None]] = None) -> str:
     """Linea de input con autocompletado de comandos.
@@ -482,15 +474,36 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
     def matched() -> List[str]:
         if not buffer.startswith("/"):
             return []
-        low = buffer.lower()
-        return [c for c in commands if c.lower().startswith(low)]
+        query = buffer.lower()
+        ranked = []
+        for i, cmd in enumerate(commands):
+            rank = _match_rank(cmd.lower(), query)
+            if rank is not None:
+                ranked.append((rank, i, cmd))
+        ranked.sort(key=lambda entry: (entry[0], entry[1]))
+        return [cmd for _, _, cmd in ranked]
 
     def redraw(first: bool = False) -> None:
         nonlocal prev_rows, prev_popup
-        shown = matched()[:_POPUP_MAX] if show_popup else []
+        # Ventana de _POPUP_MAX centrada en la seleccion: con mas comandos que
+        # filas, los marcadores indican cuantos quedan fuera y el resaltado
+        # siempre es visible (antes se podia seleccionar una fila oculta).
+        options = matched() if show_popup else []
+        total = len(options)
+        if total > _POPUP_MAX:
+            start = min(max(0, sel - _POPUP_MAX // 2), total - _POPUP_MAX)
+        else:
+            start = 0
+        shown = options[start:start + _POPUP_MAX]
+        up_more = start
+        down_more = total - (start + len(shown))
+
         width = _terminal_width()
         in_rows = _wrapped_rows(prompt + buffer, width)
-        p_rows = in_rows + (len(shown) + 1 if shown else 0)
+        popup_lines = 0
+        if shown:
+            popup_lines = len(shown) + 1 + (1 if up_more else 0) + (1 if down_more else 0)
+        p_rows = in_rows + popup_lines
 
         if not first:
             sys.stdout.write(f"\033[{prev_rows}A\r")
@@ -506,19 +519,23 @@ def command_input(prompt: str, commands: List[str], descriptions: Optional[List[
         # Bloque en video inverso sobre el caracter en pos: marca donde cae lo
         # tecleado, porque el cursor real queda oculto durante el redraw.
         sys.stdout.write("\033[K" + prompt + before + c(at, "7") + after + "\n")
+        if up_more:
+            sys.stdout.write("\033[K" + dim(t("command_more_up").format(n=up_more)) + "\n")
         for i, cmd in enumerate(shown):
             idx = commands.index(cmd)
             desc = desc_list[idx] if idx < len(desc_list) else ""
             row = cmd if not desc else f"{cmd} — {desc}"
-            if i == sel:
+            if start + i == sel:
                 sys.stdout.write("\033[K" + c(" ❯ " + row, "7") + "\n")
             else:
                 sys.stdout.write("\033[K   " + row + "\n")
+        if down_more:
+            sys.stdout.write("\033[K" + dim(t("command_more_down").format(n=down_more)) + "\n")
         if shown:
             sys.stdout.write("\033[K" + dim(t("command_hint")) + "\n")
         sys.stdout.flush()
         prev_rows = p_rows
-        prev_popup = len(shown) + 1 if shown else 0
+        prev_popup = popup_lines
         if on_tick is not None:
             on_tick()  # la barra global se refresca tras redibujar el prompt
 

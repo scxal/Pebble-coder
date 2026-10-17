@@ -231,6 +231,16 @@ class TestStatusBarE2E(unittest.TestCase):
         self.assertIn("ctx ", after)
 
 
+class TestFmtSecs(unittest.TestCase):
+    def test_sub_minute_keeps_seconds(self):
+        self.assertEqual(statistics._fmt_secs(5.0), "5.00s")
+        self.assertEqual(statistics._fmt_secs(12.34), "12.3s")
+
+    def test_minute_and_above_shows_minutes_seconds(self):
+        self.assertEqual(statistics._fmt_secs(65.2), "1m 05s")
+        self.assertEqual(statistics._fmt_secs(125.9), "2m 05s")
+
+
 class TestTranslationsParity(unittest.TestCase):
     def test_sections_have_identical_keys_in_both_languages(self):
         es = json.loads((PROJECT / "translations_es.json").read_text(encoding="utf-8"))

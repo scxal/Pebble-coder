@@ -30,9 +30,12 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
    - [Interactive Console Mode (REPL)](#1-interactive-console-mode)
    - [Direct Command Mode (CLI)](#2-direct-command-mode)
    - [Slash Commands and Autocomplete](#3-slash-commands-and-autocomplete)
-7. [Available Tools (including web_search with agent-browser)](#available-tools)
-8. [Tests (Sanity Tests)](#tests-sanity-tests)
-9. [Troubleshooting](#troubleshooting)
+7. [Agents (additional prompts)](#agents-additional-prompts)
+8. [Skills (procedures)](#skills-procedures)
+9. [Themes](#themes)
+10. [Available Tools (including web_search with agent-browser)](#available-tools)
+11. [Tests (Sanity Tests)](#tests-sanity-tests)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -56,7 +59,12 @@ react-agent/
 ├── agent.py            # Main ReAct loop, '/' commands, and interactive console
 ├── parser.py           # Regex-based parser (plain text and XML)
 ├── tools.py            # Tool implementation (web_search via DDG/Wikipedia APIs)
+├── agents.py           # Additional-prompt agents: frontmatter parsing + validation
+├── skills.py           # Skills/procedures: parsing + agent-scoped access
+├── .pbl/agents/        # Agent definitions (*.md, name + description header, <=200 lines)
+├── .pbl/skills/        # Skill definitions (*.md, same format; scoped by the agent)
 ├── menu.py             # Interactive menu engine (/settings, confirmations, autocompletion)
+├── theme.py            # Central color theme (default / light / mono)
 ├── config.json         # General configuration (model, endpoint, visibility flags, etc.)
 ├── tools.json          # Tool activation, parameters, and confirmation control
 ├── commands.json       # List of '/' commands for autocompletion
@@ -161,7 +169,11 @@ Edit `config.json` with any text editor:
   "context_window": 32768,
   "system_prompt_file": "system_prompt.md",
   "tools_file": "tools.json",
-  "editor": "vi"
+  "editor": "vi",
+  "agents_dir": ".pbl/agents",
+  "agent": "",
+  "skills_dir": ".pbl/skills",
+  "skills": []
 }
 ```
 
@@ -185,6 +197,11 @@ Edit `config.json` with any text editor:
 | `system_prompt_file` | string | `.md` path | System prompt file |
 | `tools_file` | string | `.json` path | Tool configuration file |
 | `editor` | string | `"vi"`, `"nano"`, `"code -w"`... | Editor launched by the `/editor` command (default `vi`); args allowed |
+| `agents_dir` | string | `.pbl/agents` | Folder with the additional-prompt agents (`*.md`) indexed by `/agent` |
+| `agent` | string | `""` or an agent `name` | Active agent (its body is appended to the system prompt); empty = none. Managed by `/agent` |
+| `skills_dir` | string | `.pbl/skills` | Folder with the skills/procedures (`*.md`) indexed by `/skills` |
+| `skills` | list | `[]` | Active skill names (bodies appended to the system prompt). Managed by `/skills` |
+| `theme` | string | `"default"`, `"light"` or `"mono"` | Color theme for the whole UI (banner, menus, labels, status bar). Selectable from `/settings` (row "Theme") with live apply |
 
 ---
 
@@ -299,7 +316,7 @@ Assistant:
 Python 3.12 introduces significant performance improvements, better syntax error messages, the integration of the new parser, and interpreter optimizations...
 ```
 
-To exit type `/exit` (or press `Ctrl + C`). When typing `/` you will see autocompletion with available commands; `↑/↓` choose, `Enter` executes, `Tab` completes.
+To exit type `/exit` (or press `Ctrl + C`). When typing `/` you will see autocompletion with available commands; `↑/↓` choose, `Enter` executes, `Tab` completes. Filtering is fuzzy (prefix first, then substring, then subsequence) and the popup pages with `↑ n more` / `↓ n more` when there are more matches than rows.
 
 ### 2. Direct Command Mode
 
@@ -317,9 +334,11 @@ The console supports commands that start with `/`:
 
 - **`/settings`**: opens the interactive settings menu (explained below).
 - **`/editor`**: opens the editor configured in `config.json` (`editor`, default `vi`) on a temporary file. When you save and close the editor, its content is sent as **one multi-line prompt** (an empty buffer cancels). Handy for long or multi-line prompts without pasting.
+- **`/agent`**: selector of **additional prompts** indexed from `agents_dir` (`.pbl/agents/*.md`). Choosing one appends its body to the system prompt for every turn (the base prompt is never replaced); "None" deactivates it. See [Agents](#agents-additional-prompts).
+- **`/skills`**: toggle menu of **procedures** indexed from `skills_dir` (`.pbl/skills/*.md`). If an agent is active, only the skills listed in its header are shown; otherwise all valid skills are. Enabled skills are appended to the system prompt. Each accessible skill is also its own command `/<skill-name>` (autocompleted) that runs the procedure for one turn. See [Skills](#skills-procedures).
 - **`/tools`**: two-level menu to edit `tools.json` — the first level lists every tool with its enabled state, selecting one opens its options (`enabled`, `confirm`, `timeout`, `max_output_chars`, `max_wiki_results`, `max_ddg_topics`, `fetch_budget`, `auto_fetch`; `description` is not editable since it is read by the model). Every change saves to `tools.json` immediately; `q` goes back / exits. Rows 1-9 are reachable by digit, the rest by arrows.
 - **`/exit`** (alias `/quit`): closes the agent.
-- **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list.
+- **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. Matching is **fuzzy**: exact prefixes rank first, then substrings, then subsequences (e.g. `/rlt` finds `/responsive-layout`). `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list. When there are more matches than fit (8 rows), the popup windows around the selection and shows `↑ n more` / `↓ n more` markers, so the highlighted row is always visible.
 - **Line editing:** the block cursor marks where input goes: `←/→` move it, text is inserted at it, `Backspace` deletes before it, `Delete` deletes at it, `Home`/`End` jump to the start/end of the line.
 - **Multi-line prompts (paste):** bracketed paste is enabled at the prompt, so pasting text with several lines inserts it ALL into the input (nothing is sent) — press `Enter` once to submit the whole thing as a single prompt. CRLF/CR from Windows clipboards is normalized to LF. Requires an xterm-compatible terminal (gnome-terminal, konsole, etc.); with older terminals you can still use `/editor`-style one-liners only.
 
@@ -330,12 +349,75 @@ The command list lives in `commands.json` (command name → i18n key of its desc
 Each option maps to one `config.json` key and shows its current value:
 
 - Navigate with `↑/↓` or press the option number (`1-9`). `Enter` edits/toggles, `q` or `Esc` closes the menu.
-- **Toggles** (`debug`, `thought`, `observation`, `stats`) flip instantly. **Choices** (`language`, `format`) cycle between their valid values. **Text options** (`model`, `base_url`, `api_key`, `temperature`, `max_iterations`, `timeout`, `context_window`, `system_prompt_file`, `tools_file`) open an input line with validation: an invalid value is rejected and nothing changes.
+- **Toggles** (`debug`, `thought`, `observation`, `stats`) flip instantly. **Choices** (`language`, `format`, `theme`) cycle between their valid values. **Text options** (`model`, `base_url`, `api_key`, `temperature`, `max_iterations`, `timeout`, `context_window`, `system_prompt_file`, `tools_file`) open an input line with validation: an invalid value is rejected and nothing changes.
 - Every change applies live to the running session **and** is saved to `config.json` immediately, so no restart is needed.
 - Changing `language` hot-reloads all interface texts without restarting.
+- Changing `theme` repaints the whole UI on the spot (see [Themes](#themes)).
 - Changing `tools_file` reloads the tool configuration on the spot.
 
 ---
+
+## Agents (additional prompts)
+
+An **agent** is an extra prompt that is appended to the system prompt while active — it never replaces the base prompt (which stays minimal and already enables the tools). Agents live in `agents_dir` (default `.pbl/agents/`) as `*.md` files with a frontmatter header:
+
+```markdown
+---
+name: revisor
+description: Reviews code and points out bugs, briefly
+---
+
+Always answer in Spanish. Focus on finding bugs... (your extra instructions)
+```
+
+- **Compliance is checked before indexing.** A file is indexed only if it starts with a `---` header containing non-empty `name` and `description`, has a non-empty body, and does **not exceed 200 lines**. Non-compliant files are skipped by `/agent` and reported with the reason.
+- **`/agent`** lists the indexed agents as a selector (reusing the same menu engine as `/settings`); pick one to activate it, or "None" to deactivate. The current agent is marked with `●` and stored in the `agent` key of `config.json`.
+- The active agent's body is injected at the end of the system prompt on every turn (`agent.py` → `run_react_agent`).
+- While an agent is active the REPL prompt shows its name (`Tú - <name> >` / `You - <name> >`); with no agent it stays `Tú > ` / `You > `.
+- An agent may declare **which skills it has access to** with a `skills:` header line (comma-separated or `[a, b]`):
+
+```markdown
+---
+name: frontend-developer
+description: Builds and refines HTML/CSS/JS UI
+skills: responsive-layout, forms
+---
+
+...extra instructions...
+```
+
+---
+
+## Skills (procedures)
+
+A **skill** is a reusable **procedure** — a set of steps/instructions — appended to the system prompt while active. Skills live in `skills_dir` (default `.pbl/skills/`) as `*.md` files with the **same format and compliance rules as agents** (`name` + `description` header, non-empty body, ≤200 lines):
+
+```markdown
+---
+name: responsive-layout
+description: How to make a layout responsive without breaking it
+---
+
+1. Start mobile-first...
+2. ...
+```
+
+- **`/skills`** is a **toggle** menu: each valid skill is a row you turn on/off; the active set is stored in the `skills` key of `config.json` and its bodies are appended to the system prompt.
+- **Run a skill directly:** every accessible skill is also a slash command, `/<skill-name>` (e.g. `/caveman`). Type `/` and the name to autocomplete it, then Enter — the skill's **procedure is sent as the prompt for that turn** (one-shot). Only skills allowed to the active agent appear in the autocomplete.
+- **Scoping (rule 1):** if an agent is active, `/skills` lists only the skills named in that agent's `skills:` header — you cannot enable others. **Rule 2:** with no agent active, all valid skills are listed.
+- Non-compliant files are skipped and reported with the reason (same codes as agents).
+
+---
+
+## Themes
+
+Every UI color is defined in `theme.py`, so the look is changed in one place. Pick a theme with the `theme` key in `config.json` or the **Theme** row of `/settings` (applies live to the whole UI):
+
+- `default` — the original dark-background palette (256-color).
+- `light` — basic dark-on-light colors, for light backgrounds.
+- `mono` — no color at all; only bold and reverse video (for non-color terminals).
+
+It degrades automatically: `NO_COLOR` or `TERM=dumb` (or a non-interactive output) drops the color but keeps bold/reverse, and a terminal without 256-color support falls back to the basic 16 colors.
 
 ## Available Tools
 

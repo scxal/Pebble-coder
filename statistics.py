@@ -218,12 +218,7 @@ def last_ctx() -> Optional[int]:
 # --- Colores y medida ------------------------------------------------------
 
 
-def _c(text: str, code: str) -> str:
-    return f"\033[{code}m{text}\033[0m"
-
-
-def dim(text: str) -> str:
-    return _c(text, "90")
+from theme import dim
 
 
 def _terminal_size() -> Tuple[int, int]:
@@ -524,7 +519,10 @@ def _fmt_k(n: int) -> str:
 
 
 def _fmt_secs(s: float) -> str:
-    return f"{s:.2f}s" if s < 10 else f"{s:.1f}s"
+    if s < 60:
+        return f"{s:.2f}s" if s < 10 else f"{s:.1f}s"
+    minutes, secs = divmod(int(s), 60)
+    return f"{minutes}m {secs:02d}s"
 
 
 def _bar_text() -> str:

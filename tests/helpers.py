@@ -64,6 +64,10 @@ class ConfigGuard:
         self.original = self.target.read_bytes()
         cfg = json.loads(self.original)
         cfg.update(self.overrides)
+        # Los tests no deben heredar el agente activo del config real: sin
+        # agente salvo que el propio test lo fije en `overrides`.
+        if self.target == CONFIG and "agent" not in self.overrides:
+            cfg["agent"] = ""
         self.target.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return cfg
 

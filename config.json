@@ -14,5 +14,10 @@
   "context_window": 32768,
   "system_prompt_file": "system_prompt.md",
   "tools_file": "tools.json",
-  "editor": "vi"
+  "editor": "vi",
+  "theme": "default",
+  "agents_dir": ".pbl/agents",
+  "agent": "",
+  "skills_dir": ".pbl/skills",
+  "skills": []
 }
