@@ -57,7 +57,7 @@ class TestFormatErrorCorrection(unittest.TestCase):
         with FakeLLM([malformed, good]) as llm, \
              ConfigGuard({"base_url": f"http://127.0.0.1:{llm.port}/v1", "max_iterations": 5,
                           "timeout": 10, "thought": "off", "observation": "off",
-                          "debug": "off", "language": "es"}):
+                          "debug": "off", "language": "es", "format": "text"}):
             config = agent.load_config(str(agent._SCRIPT_DIR / "config.json"))
             tools_config = load_tools_config(str(agent._SCRIPT_DIR / "tools.json"))
 
@@ -68,7 +68,27 @@ class TestFormatErrorCorrection(unittest.TestCase):
             self.assertEqual(msgs[-2]["role"], "assistant")
             self.assertEqual(msgs[-2]["content"], malformed)
             self.assertEqual(msgs[-1]["role"], "user")
-            self.assertIn("FORMAT ERROR", msgs[-1]["content"])
+            self.assertEqual(msgs[-1]["content"],
+                             agent.format_error_message(config.get("format", "text")))
+
+    def test_correction_message_matches_xml_mode(self):
+        malformed = "Your name is Edgar."
+        good = "Thought: ok.\n\nFinal Answer:\nEDGAR"  # fallback texto->xml del parser
+        with FakeLLM([malformed, good]) as llm, \
+             ConfigGuard({"base_url": f"http://127.0.0.1:{llm.port}/v1", "max_iterations": 5,
+                          "timeout": 10, "thought": "off", "observation": "off",
+                          "debug": "off", "language": "es", "format": "xml"}):
+            config = agent.load_config(str(agent._SCRIPT_DIR / "config.json"))
+            tools_config = load_tools_config(str(agent._SCRIPT_DIR / "tools.json"))
+
+            result = run_react_agent("¿Cual es mi nombre?", config, tools_config, [])
+
+            self.assertEqual(result, "EDGAR")
+            msgs = llm.requests[1]["messages"]
+            self.assertEqual(msgs[-1]["content"],
+                             agent.format_error_message(config.get("format", "xml")))
+            self.assertNotIn("Thought:", msgs[-1]["content"])
+            self.assertIn("<action>", msgs[-1]["content"])
 
 
 class TestUpdateHistory(unittest.TestCase):

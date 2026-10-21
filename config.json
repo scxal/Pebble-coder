@@ -1,13 +1,13 @@
 {
-  "language": "es",
+  "language": "en",
   "model": "local",
   "base_url": "http://127.0.0.1:8080/v1",
   "api_key": "sandia-local-ai",
-  "temperature": 0.2,
+  "temperature": 0.3,
   "max_iterations": 20,
   "timeout": 120,
-  "format": "text",
-  "debug": "off",
+  "format": "auto",
+  "debug": "on",
   "thought": "on",
   "observation": "on",
   "stats": "on",
@@ -17,7 +17,7 @@
   "editor": "vi",
   "theme": "default",
   "agents_dir": ".pbl/agents",
-  "agent": "",
+  "agent": "frontend-developer",
   "skills_dir": ".pbl/skills",
   "skills": []
 }

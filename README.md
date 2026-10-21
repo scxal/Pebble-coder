@@ -25,7 +25,7 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
    - [Visibility Control and Clean Chat Mode (debug, thought, observation)](#visibility-control-and-clean-chat-mode)
    - [Tool Configuration (tools.json)](#2-tool-configuration-toolsjson)
    - [Prompt Customization (system_prompt.md)](#3-prompt-customization-system_promptmd)
-   - [Using the Optional XML Format](#4-using-the-optional-xml-format)
+   - [Tool-call formats (text, xml, hermes, deepseek, auto)](#4-tool-call-formats-text-xml-hermes-deepseek-auto)
 6. [Usage Modes](#usage-modes)
    - [Interactive Console Mode (REPL)](#1-interactive-console-mode)
    - [Direct Command Mode (CLI)](#2-direct-command-mode)
@@ -35,7 +35,8 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
 9. [Themes](#themes)
 10. [Available Tools (including web_search with agent-browser)](#available-tools)
 11. [Tests (Sanity Tests)](#tests-sanity-tests)
-12. [Troubleshooting](#troubleshooting)
+12. [Model tuning](#model-tuning)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -72,6 +73,8 @@ react-agent/
 ├── translations_en.json# English texts (sections: ui, menu, tools, parser)
 ├── system_prompt.md    # Standard ReAct system prompt (editable)
 ├── system_prompt_xml.md# Alternative system prompt in XML format
+├── system_prompt_hermes.md    # System prompt for Qwen/Hermes-style tool calls
+├── system_prompt_deepseek.md  # System prompt for DeepSeek-style tool calls
 ├── requirements.txt    # Python dependencies (only 'requests')
 ├── run_tests.sh        # Runs the sanity suite
 ├── tests/              # Test suite (unit + E2E with pty)
@@ -188,7 +191,7 @@ Edit `config.json` with any text editor:
 | `temperature` | float | `0.1` - `0.3` | Randomness in generation (lower values give higher precision for ReAct) |
 | `max_iterations` | int | `10` | Maximum cycle limit per query |
 | `timeout` | int | `30` | Maximum wait time in seconds per LLM response |
-| `format` | string | `"text"` or `"xml"` | Thought and action format |
+| `format` | string | `"text"`, `"xml"`, `"hermes"`, `"deepseek"`, `"auto"` | Thought and action format (see [Tool-call formats](#4-tool-call-formats-text-xml-hermes-deepseek-auto)) |
 | `debug` | string/bool | `"on"` / `"off"` | Enables verbose mode with full detailed logging |
 | `thought` | string/bool | `"on"` / `"off"` | Shows the model's internal thinking on screen |
 | `observation` | string/bool | `"on"` / `"off"` | Shows observation content (file reads, commands) |
@@ -286,15 +289,24 @@ You can open `system_prompt.md` and adapt the instructions, language, or persona
 
 ---
 
-### 4. Using the Optional XML Format
+### 4. Tool-call formats (`text`, `xml`, `hermes`, `deepseek`, `auto`)
 
-If your model performs better with XML, in `config.json` change:
-```json
-{
-  "format": "xml",
-  "system_prompt_file": "system_prompt_xml.md"
-}
-```
+Select the grammar with `format` in `config.json` (or `/settings`). The matching system prompt is loaded automatically when `system_prompt_file` is the default:
+
+| Format | System prompt | Accepted tool calls |
+|---|---|---|
+| `text` | `system_prompt.md` | `Thought:` / `Action:` / `Input:` / `Final Answer:` |
+| `xml` | `system_prompt_xml.md` | `<thought>`, `<action>`, `<input>`, `<final_answer>` |
+| `hermes` | `system_prompt_hermes.md` | Qwen/Hermes style: `<tool_call>{"name": "...", "arguments": {...}}</tool_call>` |
+| `deepseek` | `system_prompt_deepseek.md` | DeepSeek tokens: `<｜tool▁calls▁begin｜>...<｜tool▁sep｜>{...}<｜tool▁calls▁end｜>` |
+| `auto` | `system_prompt.md` | Detects any of the above on every response |
+
+Notes:
+
+- Every mode accepts `<final_answer>...</final_answer>` for the final answer.
+- The parser also tolerates common model leaks: fenced JSON, `"arguments"` as a JSON string, ASCII pipes instead of the fullwidth `｜` token, the legacy R1 fenced envelope, the DSML XML envelope, and `<think>...</think>` reasoning spans (shown as Thought when enabled).
+- Parallel calls are accepted, but only the first one is executed (one tool per iteration).
+- `auto` falls back through the parsers, so mixed or drifting models keep working without editing the config.
 
 ---
 
@@ -324,6 +336,13 @@ For pipelines or scripts:
 
 ```bash
 python3 agent.py "Read config.json and tell me which model is selected"
+```
+
+Tools configured with `"confirm": true` (by default `write_file` and `run_command`) need a terminal to ask for approval. Without a terminal the action is denied; add `-y`/`--yes` to approve it automatically:
+
+```bash
+python3 agent.py -y "Create index.html with a landing page"
+pbl -y "Create index.html with a landing page"
 ```
 
 ---
@@ -459,6 +478,27 @@ The suite verifies that the agent is not broken: parser, helpers, `web_search`, 
 - `config.json` is backed up and automatically restored after each test.
 - Network tests (`web_search`) are skipped automatically if there is no internet connection.
 - Approximate full suite time: 1-2 minutes.
+
+---
+
+## Model tuning
+
+Values tested with `unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q4_K_M` (llama.cpp):
+
+**pbl (`config.json`)**
+```json
+"temperature": 0.3,
+"format": "auto"
+```
+`0.2`–`0.4` keeps the model in the ReAct format and calling tools. `1.0` makes it ramble and paste code instead of using `write_file`.
+
+**llama.cpp**
+```bash
+./llama serve -hf unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q4_K_M \
+  --port 8080 --alias local -c 33000 -ngl 99 \
+  --cache-type-k q8_0 --cache-type-v q8_0
+```
+Use `q8_0` (or `f16`) for the KV cache. `--cache-type-k q4_0` corrupts generation: the model repeats meaningless tokens. For headless runs use `pbl -y "..."` so `write_file` is approved without a terminal.
 
 ---
 

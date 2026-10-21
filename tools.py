@@ -538,6 +538,41 @@ def save_tools_config(tools_config: Dict[str, Any], path: str = "tools.json") ->
         f.write("\n")
 
 
+_JSON_ARG_KEYS = {
+    "list_files": ("path", "directory", "dir", "folder", "file"),
+    "read_file": ("path", "file", "filename", "filepath", "directory"),
+    "run_command": ("command", "cmd", "shell", "script"),
+    "web_search": ("query", "search", "keywords", "q"),
+    "web_fetch": ("url", "link", "uri"),
+}
+
+
+def _coerce_json_args(raw_input: str, action: str) -> Optional[str]:
+    """Maps a JSON arguments object to the tool's positional string argument."""
+    text = raw_input.strip()
+    if not (text.startswith("{") and text.endswith("}")):
+        return None
+    from parser import _load_call_json
+    data = _load_call_json(text)
+    if not isinstance(data, dict) or not data:
+        return None
+    for key in _JSON_ARG_KEYS.get(action, ()):
+        if key in data:
+            value = data[key]
+            return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    if len(data) == 1:
+        value = next(iter(data.values()))
+        return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return None
+
+
+def _normalize_tool_input(raw_input: str, action: str) -> str:
+    if action == "write_file":
+        return raw_input
+    coerced = _coerce_json_args(raw_input, action)
+    return coerced if coerced is not None else raw_input
+
+
 def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> str:
     action = action.strip()
     tool_cfg = tools_config.get(action)
@@ -548,7 +583,7 @@ def execute_tool(action: str, raw_input: str, tools_config: Dict[str, Any]) -> s
     if action not in TOOL_FUNCTIONS:
         return f"ERROR: Tool '{action}' is not implemented."
 
-    clean_input = (raw_input or "").strip()
+    clean_input = _normalize_tool_input((raw_input or "").strip(), action)
 
     if action == "list_files":
         return list_files(clean_input or ".")

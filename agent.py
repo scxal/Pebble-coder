@@ -66,6 +66,11 @@ def t(key: str, **kwargs) -> str:
     return val
 
 
+def format_error_message(format_type: str) -> str:
+    fmt = (format_type or "text").lower().strip()
+    return t(f"format_error_instructions_{fmt}") or t("format_error_instructions")
+
+
 def is_enabled(config: Dict[str, Any], key: str, default: bool = False) -> bool:
     val = config.get(key, default)
     if isinstance(val, bool):
@@ -105,16 +110,24 @@ def load_config(config_path: str = "config.json") -> Dict[str, Any]:
         return json.load(f)
 
 
+_FORMAT_PROMPT_FILES = {
+    "xml": "system_prompt_xml.md",
+    "hermes": "system_prompt_hermes.md",
+    "deepseek": "system_prompt_deepseek.md",
+}
+
+
 def load_system_prompt(config: Dict[str, Any]) -> str:
     prompt_file = config.get("system_prompt_file", "system_prompt.md")
     prompt_path = Path(prompt_file)
     if not prompt_path.is_absolute():
         prompt_path = _SCRIPT_DIR / prompt_path
 
-    if config.get("format") == "xml" and prompt_file == "system_prompt.md":
-        xml_candidate = _SCRIPT_DIR / "system_prompt_xml.md"
-        if xml_candidate.exists():
-            prompt_path = xml_candidate
+    format_type = (config.get("format") or "text").lower().strip()
+    if prompt_file == "system_prompt.md" and format_type in _FORMAT_PROMPT_FILES:
+        format_candidate = _SCRIPT_DIR / _FORMAT_PROMPT_FILES[format_type]
+        if format_candidate.exists():
+            prompt_path = format_candidate
 
     if not prompt_path.exists():
         print(t("prompt_missing_warning").format(path=prompt_file))
@@ -273,10 +286,26 @@ def _clip_pending_header(text: str) -> str:
     return text
 
 
+_THINK_SPAN_RE = re.compile(
+    r"[<\uff1c]think[>\uff1e](.*?)[<\uff1c]/think[>\uff1e]",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def live_thought_text(full: str, fmt: str):
-    if fmt == "xml":
+    if fmt in ("hermes", "deepseek", "auto"):
+        m = _THINK_SPAN_RE.search(full)
+        if m:
+            return m.group(1).strip() or None
+        if fmt != "auto":
+            return None
+
+    if fmt in ("xml", "auto"):
         m = re.search(r"<thought>(.*?)</thought>", full, re.IGNORECASE | re.DOTALL)
-        return m.group(1).strip() if m else None
+        if m:
+            return m.group(1).strip()
+        if fmt == "xml":
+            return None
 
     m = re.search(r"(?:^|\n)\s*[*#\s]*Thought\s*:[*#\s]*", full, re.IGNORECASE)
     if not m:
@@ -356,7 +385,8 @@ def stream_llm(messages: List[Dict[str, str]], config: Dict[str, Any], label=Non
                 else:
                     safe = _clip_pending_channel_word(reasoning)
                     hdr = re.search(
-                        r"(?:^|\n)\s*[*#\s]*(?:Action|Final\s+Answer|Input|Observation)\s*:",
+                        r"(?:^|\n)\s*(?:\[\s*(?:Action|Final\s+Answer|Input|Observation)\s*\]"
+                        r"|(?:Action|Final\s+Answer|Input|Observation)\s*:)",
                         safe,
                         re.IGNORECASE,
                     )
@@ -384,7 +414,12 @@ def stream_llm(messages: List[Dict[str, str]], config: Dict[str, Any], label=Non
     reasoning_final = _strip_special_tokens(raw_reasoning)
 
     if not saw_content_channel and reasoning_final:
-        if re.search(r"(?:^|\n)\s*(?:Action|Final\s*Answer)\s*:", reasoning_final, re.IGNORECASE):
+        if re.search(
+            r"(?:^|\n)\s*(?:\[\s*(?:Action|Final\s+Answer)\s*\]"
+            r"|(?:Action|Final\s+Answer)\s*:)",
+            reasoning_final,
+            re.IGNORECASE,
+        ):
             full = reasoning_final
 
     if label is not None and header_shown and printed_text:
@@ -483,7 +518,7 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
             messages.append({"role": "assistant", "content": raw_response})
             messages.append({
                 "role": "user",
-                "content": t("format_error_instructions"),
+                "content": format_error_message(format_type),
             })
             continue
 
@@ -511,21 +546,28 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
             print(red(t('tool_disabled_error').format(action=action)))
             return t('tool_disabled_terminated').format(action=action)
 
-        # Confirmacion previa si la herramienta lo pide (tools.json: "confirm")
-        if tool_cfg.get("confirm", False):
-            if action == "write_file":
-                preview_path, _ = parse_write_file_args(tool_input)
-                preview = preview_path or tool_input
+        # Confirmacion previa si la herramienta lo pide (tools.json: "confirm").
+        # Sin terminal no se puede preguntar: se deniega salvo -y/--yes.
+        auto_approve = bool(config.get("_auto_approve"))
+        denial_reason = None
+        if tool_cfg.get("confirm", False) and not auto_approve:
+            if not sys.stdin.isatty():
+                allowed = False
+                denial_reason = t("tool_noninteractive_denied").format(action=action)
             else:
-                preview = tool_input
-            print(yellow(t("tool_confirm_header").format(action=action)))
-            print(f"  {preview}")
-            allowed = confirm(t("tool_confirm_question"))
+                if action == "write_file":
+                    preview_path, _ = parse_write_file_args(tool_input)
+                    preview = preview_path or tool_input
+                else:
+                    preview = tool_input
+                print(yellow(t("tool_confirm_header").format(action=action)))
+                print(f"  {preview}")
+                allowed = confirm(t("tool_confirm_question"))
         else:
             allowed = True
 
         if not allowed:
-            observation = t('tool_denied_observation').format(action=action)
+            observation = denial_reason or t('tool_denied_observation').format(action=action)
             print(red(observation))
         else:
             try:
@@ -608,7 +650,8 @@ def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
                  value=config.get("timeout", 30),
                  validate=_validate_positive_int, on_change=setter("timeout")),
         MenuItem(t("label_format"), "choice",
-                 value=config.get("format", "text"), choices=["text", "xml"],
+                 value=config.get("format", "text"),
+                 choices=["text", "xml", "hermes", "deepseek", "auto"],
                  on_change=setter("format")),
         MenuItem(t("label_debug"), "toggle",
                  value=config.get("debug", "off"), on_change=setter("debug")),
@@ -967,9 +1010,18 @@ def main():
             rows[i] += glyph[i] + " "
     print("\n" + "\n".join(rows))
 
-    # Parse simple CLI args: -c "prompt" runs directly, bypassing TUI
-    if len(sys.argv) >= 3 and sys.argv[1] in ("-c", "--command"):
-        prompt = sys.argv[2]
+    # Parse simple CLI args: -c "prompt" runs directly, bypassing TUI.
+    # -y/--yes aprueba las herramientas con confirm (necesario sin terminal).
+    args = sys.argv[1:]
+    auto_approve = False
+    while args and args[0] in ("-y", "--yes"):
+        auto_approve = True
+        args = args[1:]
+    if auto_approve:
+        config["_auto_approve"] = True
+
+    if len(args) >= 2 and args[0] in ("-c", "--command"):
+        prompt = args[1]
         if debug_mode:
             print(t('cli_task_executing').format(prompt=prompt))
         statistics.begin_answer()
@@ -978,8 +1030,8 @@ def main():
         return
 
     # Modo de ejecucion directa por argumentos CLI (sin flag)
-    if len(sys.argv) > 1:
-        prompt = " ".join(sys.argv[1:])
+    if args:
+        prompt = " ".join(args)
         if debug_mode:
             print(t('cli_task_executing').format(prompt=prompt))
         statistics.begin_answer()

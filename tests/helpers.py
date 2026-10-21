@@ -69,11 +69,24 @@ class ConfigGuard:
         if self.target == CONFIG and "agent" not in self.overrides:
             cfg["agent"] = ""
         self.target.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if self.target == CONFIG:
+            self._reload_translations()
         return cfg
 
     def __exit__(self, *exc):
         self.target.write_bytes(self.original)
+        if self.target == CONFIG:
+            self._reload_translations()
         return False
+
+    @staticmethod
+    def _reload_translations():
+        """Alinea `agent.t()` del proceso de test con el idioma del hijo."""
+        try:
+            import agent
+            agent.reload_translations()
+        except Exception:
+            pass
 
 
 class ToolsGuard(ConfigGuard):

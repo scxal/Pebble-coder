@@ -61,12 +61,27 @@ class TestSettingsMenu(unittest.TestCase):
             with self.subTest("valid temperature saved"):
                 self.assertEqual(read_config().get("temperature"), 0.7)
 
-            term.send(b"8\r")  # format -> xml
+            term.send(b"8\r")  # text -> xml
             term.read(0.8)
             with self.subTest("format cycled to xml"):
                 self.assertEqual(read_config().get("format"), "xml")
 
-            term.send(b"8\r")  # format -> text
+            term.send(b"8\r")  # xml -> hermes
+            term.read(0.8)
+            with self.subTest("format cycled to hermes"):
+                self.assertEqual(read_config().get("format"), "hermes")
+
+            term.send(b"8\r")  # hermes -> deepseek
+            term.read(0.8)
+            with self.subTest("format cycled to deepseek"):
+                self.assertEqual(read_config().get("format"), "deepseek")
+
+            term.send(b"8\r")  # deepseek -> auto
+            term.read(0.8)
+            with self.subTest("format cycled to auto"):
+                self.assertEqual(read_config().get("format"), "auto")
+
+            term.send(b"8\r")  # auto -> text
             term.read(0.8)
             with self.subTest("format cycled back to text"):
                 self.assertEqual(read_config().get("format"), "text")

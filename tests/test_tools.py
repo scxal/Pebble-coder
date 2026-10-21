@@ -91,5 +91,45 @@ class TestMenuItem(unittest.TestCase):
         self.assertIn("[on]", item.value_text())
 
 
+class TestToolJsonArgs(unittest.TestCase):
+    def test_json_path_for_read_file(self):
+        from tools import _coerce_json_args
+        self.assertEqual(_coerce_json_args('{"path": "a.txt"}', "read_file"), "a.txt")
+
+    def test_json_command_for_run_command(self):
+        from tools import _coerce_json_args
+        self.assertEqual(_coerce_json_args('{"command": "ls -la"}', "run_command"), "ls -la")
+
+    def test_json_url_for_web_fetch(self):
+        from tools import _coerce_json_args
+        self.assertEqual(_coerce_json_args('{"url": "https://example.com"}', "web_fetch"),
+                         "https://example.com")
+
+    def test_single_key_fallback(self):
+        from tools import _coerce_json_args
+        self.assertEqual(_coerce_json_args('{"whatever": "value"}', "read_file"), "value")
+
+    def test_write_file_passthrough(self):
+        from tools import _normalize_tool_input
+        raw = '{"path": "a.txt", "content": "hola"}'
+        self.assertEqual(_normalize_tool_input(raw, "write_file"), raw)
+
+    def test_execute_read_file_with_json_args(self):
+        import tempfile
+        from pathlib import Path
+        from tools import execute_tool
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "nota.txt"
+            target.write_text("contenido", encoding="utf-8")
+            out = execute_tool("read_file", '{"path": "%s"}' % target, {"read_file": {"enabled": True}})
+            self.assertEqual(out, "contenido")
+
+    def test_execute_run_command_with_json_args(self):
+        from tools import execute_tool
+        out = execute_tool("run_command", '{"command": "echo hola"}',
+                           {"run_command": {"enabled": True, "timeout": 10}})
+        self.assertIn("hola", out)
+
+
 if __name__ == "__main__":
     unittest.main()
