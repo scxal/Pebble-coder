@@ -30,13 +30,14 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
    - [Interactive Console Mode (REPL)](#1-interactive-console-mode)
    - [Direct Command Mode (CLI)](#2-direct-command-mode)
    - [Slash Commands and Autocomplete](#3-slash-commands-and-autocomplete)
-7. [Agents (additional prompts)](#agents-additional-prompts)
-8. [Skills (procedures)](#skills-procedures)
-9. [Themes](#themes)
-10. [Available Tools (including web_search with agent-browser)](#available-tools)
-11. [Tests (Sanity Tests)](#tests-sanity-tests)
-12. [Model tuning](#model-tuning)
-13. [Troubleshooting](#troubleshooting)
+7. [Session Context (`/new`, `/compact`)](#session-context-new-compact)
+8. [Agents (additional prompts)](#agents-additional-prompts)
+9. [Skills (procedures)](#skills-procedures)
+10. [Themes](#themes)
+11. [Available Tools (including web_search with agent-browser)](#available-tools)
+12. [Tests (Sanity Tests)](#tests-sanity-tests)
+13. [Model tuning](#model-tuning)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -45,6 +46,7 @@ Minimalist ReAct agent in Python designed to operate with low latency and low me
 - **Statistics status bar, always visible:** a dim row PINNED to the bottom line of the terminal — the last line is reserved (scroll region) while `stats` is on, so the bar stays put while you type, while the model streams its answer, and during tool output. It shows the time the answer took (`LLM`, counting live during the request), tokens/s, context used against the model window (`ctx`), and GPU/CPU/RAM. Toggle with `"stats"` in `config.json` or `/settings`; on exit the normal scrolling is restored.
 - **Clean chat by default:** Only shows interactions and responses from the assistant. Internal reasoning (`Thought`) and file read dumps or observations do not flood the screen unless enabled.
 - **Session conversation memory:** In console mode the agent keeps the last exchanges (user question + final answer) of the session, so follow-up questions keep context. It lives in RAM only — nothing persists between runs.
+- **Context under control:** `/new` wipes the session context and `/compact` summarizes it so a long conversation keeps fitting in the model's window. The same compaction runs by itself when the context reaches the configured threshold (85% by default).
 - **Organized web search (`web_search`):** Native integration with `agent-browser` to perform concise web searches and page reading without overloading the model context or requiring paid APIs.
 - **No heavy frameworks:** Does not use LangChain, CrewAI, AutoGen, or libraries with complex dependencies.
 - **No complex Function Calling:** Uses the classic ReAct pattern based on structured text (`Thought / Action / Input / Observation / Final Answer`), ideal for small models that hallucinate or fail with JSON tool calling.
@@ -62,25 +64,34 @@ react-agent/
 ├── tools.py            # Tool implementation (web_search via DDG/Wikipedia APIs)
 ├── agents.py           # Additional-prompt agents: frontmatter parsing + validation
 ├── skills.py           # Skills/procedures: parsing + agent-scoped access
-├── .pbl/agents/        # Agent definitions (*.md, name + description header, <=200 lines)
-├── .pbl/skills/        # Skill definitions (*.md, same format; scoped by the agent)
+├── session.py          # Session context: history, /new, /compact
+├── pbl_home.py         # Resolves ~/.pbl (config, prompts, agents, skills)
 ├── menu.py             # Interactive menu engine (/settings, confirmations, autocompletion)
 ├── theme.py            # Central color theme (default / light / mono)
-├── config.json         # General configuration (model, endpoint, visibility flags, etc.)
-├── tools.json          # Tool activation, parameters, and confirmation control
-├── commands.json       # List of '/' commands for autocompletion
-├── translations_es.json# Spanish texts (sections: ui, menu, tools, parser)
-├── translations_en.json# English texts (sections: ui, menu, tools, parser)
-├── system_prompt.md    # Standard ReAct system prompt (editable)
-├── system_prompt_xml.md# Alternative system prompt in XML format
-├── system_prompt_hermes.md    # System prompt for Qwen/Hermes-style tool calls
-├── system_prompt_deepseek.md  # System prompt for DeepSeek-style tool calls
+├── defaults/           # Templates copied to ~/.pbl on install/first run
+│   ├── config.json     # General configuration (model, endpoint, visibility flags, etc.)
+│   ├── tools.json      # Tool activation, parameters, and confirmation control
+│   ├── commands.json   # List of '/' commands for autocompletion
+│   ├── translations_es.json # Spanish texts (sections: ui, menu, tools, parser)
+│   ├── translations_en.json # English texts (sections: ui, menu, tools, parser)
+│   ├── system_prompt.md # Standard ReAct system prompt (editable)
+│   ├── system_prompt_xml.md # Alternative system prompt in XML format
+│   ├── system_prompt_hermes.md # System prompt for Qwen/Hermes-style tool calls
+│   ├── system_prompt_deepseek.md # System prompt for DeepSeek-style tool calls
+│   ├── agents/         # Agent definitions (*.md, name + description header, <=200 lines)
+│   └── skills/         # Skill definitions (*.md, same format; scoped by the agent)
 ├── requirements.txt    # Python dependencies (only 'requests')
 ├── run_tests.sh        # Runs the sanity suite
+├── specs/              # Feature specs (requirements.md / design.md / tasks.md)
 ├── tests/              # Test suite (unit + E2E with pty)
 ├── lineamientos.md     # Technical project specifications
 └── README.md           # This instruction guide
 ```
+
+The editable files live in **`~/.pbl`** (override with `PEBBLE_HOME`), not in the
+repository: `install.sh` copies `defaults/` there and the application creates it
+automatically on the first run. New keys are merged into an existing installation
+without overwriting your values.
 
 ---
 
@@ -176,7 +187,9 @@ Edit `config.json` with any text editor:
   "agents_dir": ".pbl/agents",
   "agent": "",
   "skills_dir": ".pbl/skills",
-  "skills": []
+  "skills": [],
+  "autocompact": "on",
+  "autocompact_threshold": 85
 }
 ```
 
@@ -204,6 +217,8 @@ Edit `config.json` with any text editor:
 | `agent` | string | `""` or an agent `name` | Active agent (its body is appended to the system prompt); empty = none. Managed by `/agent` |
 | `skills_dir` | string | `.pbl/skills` | Folder with the skills/procedures (`*.md`) indexed by `/skills` |
 | `skills` | list | `[]` | Active skill names (bodies appended to the system prompt). Managed by `/skills` |
+| `autocompact` | string/bool | `"on"` / `"off"` | Compacts the session context automatically when it reaches the threshold. Managed by `/settings` |
+| `autocompact_threshold` | int | `85` | Percentage of `context_window` that triggers the automatic compaction (1-100) |
 | `theme` | string | `"default"`, `"light"` or `"mono"` | Color theme for the whole UI (banner, menus, labels, status bar). Selectable from `/settings` (row "Theme") with live apply |
 
 ---
@@ -356,8 +371,10 @@ The console supports commands that start with `/`:
 - **`/agent`**: selector of **additional prompts** indexed from `agents_dir` (`.pbl/agents/*.md`). Choosing one appends its body to the system prompt for every turn (the base prompt is never replaced); "None" deactivates it. See [Agents](#agents-additional-prompts).
 - **`/skills`**: toggle menu of **procedures** indexed from `skills_dir` (`.pbl/skills/*.md`). If an agent is active, only the skills listed in its header are shown; otherwise all valid skills are. Enabled skills are appended to the system prompt. Each accessible skill is also its own command `/<skill-name>` (autocompleted) that runs the procedure for one turn. See [Skills](#skills-procedures).
 - **`/tools`**: two-level menu to edit `tools.json` — the first level lists every tool with its enabled state, selecting one opens its options (`enabled`, `confirm`, `timeout`, `max_output_chars`, `max_wiki_results`, `max_ddg_topics`, `fetch_budget`, `auto_fetch`; `description` is not editable since it is read by the model). Every change saves to `tools.json` immediately; `q` goes back / exits. Rows 1-9 are reachable by digit, the rest by arrows.
+- **`/new`**: clears the session context and starts a fresh session. The active agent, the active skills and every setting are kept (they are configuration, not context); the next question is sent to the model with no prior message.
+- **`/compact`**: summarizes the session context and replaces it with that summary, so a long conversation keeps fitting in the model's window. The summarization uses the same model and endpoint, and is not recorded as a turn. With an empty context it does nothing.
 - **`/exit`** (alias `/quit`): closes the agent.
-- **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. Matching is **fuzzy**: exact prefixes rank first, then substrings, then subsequences (e.g. `/rlt` finds `/responsive-layout`). `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list. When there are more matches than fit (8 rows), the popup windows around the selection and shows `↑ n more` / `↓ n more` markers, so the highlighted row is always visible.
+- **Autocomplete:** when you type `/` a popup shows the available commands and their descriptions, filtered as you type. Matching is **fuzzy**: exact prefixes rank first, then substrings, then subsequences (e.g. `/rlt` finds `/responsive-layout`). `↑/↓` selects, `Enter` executes, `Tab` completes, `Esc` opens/closes the list. When there are more matches than fit (10 rows), the popup windows around the selection and shows `↑ n more` / `↓ n more` markers, so the highlighted row is always visible.
 - **Line editing:** the block cursor marks where input goes: `←/→` move it, text is inserted at it, `Backspace` deletes before it, `Delete` deletes at it, `Home`/`End` jump to the start/end of the line.
 - **Multi-line prompts (paste):** bracketed paste is enabled at the prompt, so pasting text with several lines inserts it ALL into the input (nothing is sent) — press `Enter` once to submit the whole thing as a single prompt. CRLF/CR from Windows clipboards is normalized to LF. Requires an xterm-compatible terminal (gnome-terminal, konsole, etc.); with older terminals you can still use `/editor`-style one-liners only.
 
@@ -368,11 +385,36 @@ The command list lives in `commands.json` (command name → i18n key of its desc
 Each option maps to one `config.json` key and shows its current value:
 
 - Navigate with `↑/↓` or press the option number (`1-9`). `Enter` edits/toggles, `q` or `Esc` closes the menu.
-- **Toggles** (`debug`, `thought`, `observation`, `stats`) flip instantly. **Choices** (`language`, `format`, `theme`) cycle between their valid values. **Text options** (`model`, `base_url`, `api_key`, `temperature`, `max_iterations`, `timeout`, `context_window`, `system_prompt_file`, `tools_file`) open an input line with validation: an invalid value is rejected and nothing changes.
+- **Toggles** (`debug`, `thought`, `observation`, `stats`, `autocompact`) flip instantly. **Choices** (`language`, `format`, `theme`) cycle between their valid values. **Text options** (`model`, `base_url`, `api_key`, `temperature`, `max_iterations`, `timeout`, `context_window`, `autocompact_threshold`, `system_prompt_file`, `tools_file`) open an input line with validation: an invalid value is rejected and nothing changes.
 - Every change applies live to the running session **and** is saved to `config.json` immediately, so no restart is needed.
 - Changing `language` hot-reloads all interface texts without restarting.
 - Changing `theme` repaints the whole UI on the spot (see [Themes](#themes)).
 - Changing `tools_file` reloads the tool configuration on the spot.
+
+---
+
+## Session Context (`/new`, `/compact`)
+
+The agent keeps a **session context**: the messages exchanged so far, which are sent to
+the model on every turn. Two commands manage it:
+
+- **`/new`** — clears the context and starts a fresh session. The next question is sent
+  with no prior message. The active agent, the active skills and every setting are kept
+  (they are configuration, not context).
+- **`/compact`** — summarizes the context with the same model and replaces it with that
+  summary (a single `user`/`assistant` pair). The summary keeps the decisions, the file
+  paths, the commands and the open questions, and drops the noise. The summarization
+  call is not recorded as a turn and does not alter the status bar counters. If the
+  summarization fails, the context is left untouched.
+
+**Automatic compaction.** When `autocompact` is on (the default), the context is compacted
+by itself as soon as it reaches `autocompact_threshold` percent of `context_window`
+(85% by default). The usage is measured with the token count reported by the server
+when available, and with a character-based estimate otherwise. Both values live in
+`/settings` (rows "Automatic compaction" and "Compaction threshold (%)").
+
+The context lives in memory only: it is not written to disk and does not survive a
+restart.
 
 ---
 

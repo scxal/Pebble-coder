@@ -394,7 +394,7 @@ def confirm(title: str, yes_label: Optional[str] = None, no_label: Optional[str]
     return result["allowed"]
 
 
-_POPUP_MAX = 8
+_POPUP_MAX = 10
 # Refresco de la barra de estado en reposo. DEBE superar cualquier timeout de
 # lectura de los tests E2E (max 3.0s): AgentPty.read() solo corta tras N
 # segundos de silencio, y un tick mas rapido lo mantendria en bucle.

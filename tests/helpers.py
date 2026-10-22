@@ -118,13 +118,26 @@ class FakeLLM:
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length)
                 try:
-                    outer.requests.append(json.loads(body))
+                    request = json.loads(body)
                 except Exception:
-                    outer.requests.append(None)
+                    request = None
+                outer.requests.append(request)
                 outer.count += 1
                 if outer.delay:
                     time.sleep(outer.delay)
                 content = responses[min(outer.count, len(responses)) - 1]
+                if isinstance(request, dict) and not request.get("stream", False):
+                    # Peticion sin streaming (p.ej. el resumen de /compact).
+                    answer = {"choices": [{"message": {"content": content}}]}
+                    if outer.usage is not None:
+                        answer["usage"] = outer.usage
+                    payload = json.dumps(answer).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 chunk = {"choices": [{"delta": {"content": content}}]}
                 if outer.usage is not None:
                     chunk["usage"] = outer.usage

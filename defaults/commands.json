@@ -5,6 +5,8 @@
     "/editor": "cmd_editor",
     "/agent": "cmd_agent",
     "/skills": "cmd_skills",
+    "/new": "cmd_new",
+    "/compact": "cmd_compact",
     "/exit": "cmd_exit"
   }
 }

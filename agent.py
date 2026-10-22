@@ -26,6 +26,8 @@ from menu import MenuItem, command_input, confirm, run_menu
 import agents
 import skills
 import statistics
+from session import Session, update_history
+from session import HISTORY_MAX_MESSAGES as _HISTORY_MAX_MESSAGES
 
 
 # --- Translation loading ---
@@ -141,7 +143,8 @@ def load_system_prompt(config: Dict[str, Any]) -> str:
         return f.read().strip()
 
 
-def call_llm(messages: List[Dict[str, str]], config: Dict[str, Any]) -> str:
+def call_llm(messages: List[Dict[str, str]], config: Dict[str, Any],
+             track_stats: bool = True) -> str:
     base_url = config.get("base_url", "http://localhost:11434/v1").rstrip("/")
     url = f"{base_url}/chat/completions"
 
@@ -163,7 +166,8 @@ def call_llm(messages: List[Dict[str, str]], config: Dict[str, Any]) -> str:
         response = requests.post(url, json=payload, headers=headers, timeout=timeout)
         response.raise_for_status()
         data = response.json()
-        statistics.note_usage(data.get("usage"))
+        if track_stats:
+            statistics.note_usage(data.get("usage"))
         return _strip_special_tokens(data["choices"][0]["message"]["content"])
     except requests.exceptions.ConnectionError:
         raise ConnectionError(
@@ -446,17 +450,6 @@ def stream_llm(messages: List[Dict[str, str]], config: Dict[str, Any], label=Non
     return full, header_shown
 
 
-_HISTORY_MAX_MESSAGES = 6  # ultimos 3 intercambios (pregunta + respuesta final)
-
-
-def update_history(history: List[Dict[str, str]], user_input: str, answer: str) -> None:
-    """Guarda el intercambio terminado y recorta al limite de memoria de sesion."""
-    history.append({"role": "user", "content": user_input})
-    history.append({"role": "assistant", "content": answer or ""})
-    if len(history) > _HISTORY_MAX_MESSAGES:
-        del history[: len(history) - _HISTORY_MAX_MESSAGES]
-
-
 def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any],
                     history: Optional[List[Dict[str, str]]] = None) -> str:
     system_prompt = load_system_prompt(config)
@@ -621,6 +614,13 @@ def _validate_positive_int(raw: str) -> int:
     return val
 
 
+def _validate_percentage(raw: str) -> int:
+    val = int(raw)
+    if not (1 <= val <= 100):
+        raise ValueError(raw)
+    return val
+
+
 def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
     """Construye los items del menu /settings a partir de config.json."""
 
@@ -688,10 +688,17 @@ def build_settings_items(config: Dict[str, Any]) -> List[MenuItem]:
                  value=config.get("theme", theme.DEFAULT_THEME),
                  choices=theme.available_themes(),
                  on_change=setter("theme", after=lambda value: theme.set_theme(value))),
+        # Al final: los digitos 1-9 siguen apuntando a las mismas filas.
+        MenuItem(t("label_autocompact"), "toggle",
+                 value=config.get("autocompact", "on"), on_change=setter("autocompact")),
+        MenuItem(t("label_autocompact_threshold"), "text",
+                 value=config.get("autocompact_threshold", 85),
+                 validate=_validate_percentage, on_change=setter("autocompact_threshold")),
     ]
 
 
-def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any],
+                 session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """Menu interactivo de configuracion. Devuelve (tools_config, prompt)."""
     original_tools_file = config.get("tools_file", "tools.json")
     run_menu(t("menu_title_settings"), build_settings_items(config))
@@ -764,7 +771,8 @@ def build_tool_option_items(tool_name: str, tools_config: Dict[str, Any]) -> Lis
     return items
 
 
-def cmd_tools(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+def cmd_tools(config: Dict[str, Any], tools_config: Dict[str, Any],
+              session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """Menu interactivo de tools.json: elegir herramienta y editar sus opciones.
 
     Dos niveles con el mismo motor que /settings: run_menu cierra al elegir
@@ -788,7 +796,8 @@ def cmd_tools(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dic
     return tools_config, None
 
 
-def cmd_editor(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+def cmd_editor(config: Dict[str, Any], tools_config: Dict[str, Any],
+               session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """Abre $editor (config: "editor", por defecto "vi") sobre un fichero tmp.
 
     Al salir del editor, su contenido se devuelve como prompt (multilinea) para
@@ -830,7 +839,8 @@ _DOC_REASON_KEYS = {
 }
 
 
-def cmd_agent(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+def cmd_agent(config: Dict[str, Any], tools_config: Dict[str, Any],
+              session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """Selector de agente: prompts adicionales indexados desde agents_dir."""
     directory = agents.resolve_dir(str(config.get("agents_dir") or ".pbl/agents"))
     infos = agents.load_agents(directory)
@@ -867,7 +877,8 @@ def cmd_agent(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dic
     return tools_config, None
 
 
-def cmd_skills(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+def cmd_skills(config: Dict[str, Any], tools_config: Dict[str, Any],
+               session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """Selector de skills: procedimientos accesibles segun el agente activo.
 
     Reglas: con agente activo solo se listan las skills de su header `skills`;
@@ -910,12 +921,81 @@ def cmd_skills(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[Di
     return tools_config, None
 
 
+def autocompact_threshold(config: Dict[str, Any]) -> int:
+    """Umbral de compactado automatico, en porcentaje (1-100)."""
+    try:
+        value = int(config.get("autocompact_threshold", 85))
+    except (TypeError, ValueError):
+        return 85
+    return max(1, min(100, value))
+
+
+def should_autocompact(config: Dict[str, Any], ctx_tokens: int) -> bool:
+    """True si el contexto actual ha alcanzado el umbral de compactado."""
+    if not is_enabled(config, "autocompact", True):
+        return False
+    if not ctx_tokens or ctx_tokens <= 0:
+        return False
+    try:
+        window = int(config.get("context_window", 32768))
+    except (TypeError, ValueError):
+        return False
+    if window <= 0:
+        return False
+    return (float(ctx_tokens) / window) * 100.0 >= autocompact_threshold(config)
+
+
+def apply_compaction(session: Optional[Session], config: Dict[str, Any]) -> bool:
+    """Resume el contexto en un par de mensajes. True si se compacto."""
+    if session is None or session.is_empty():
+        return False
+    try:
+        summary = session.summarize(
+            lambda messages, cfg: call_llm(messages, cfg, track_stats=False), config)
+    except Exception as exc:
+        print(red(t("compact_error").format(exc=exc)))
+        return False
+    summary = (summary or "").strip()
+    if not summary:
+        print(red(t("compact_error").format(exc=t("compact_empty_summary"))))
+        return False
+    session.replace([
+        {"role": "user", "content": t("compact_summary_prefix") + summary},
+        {"role": "assistant", "content": t("compact_summary_ack")},
+    ])
+    return True
+
+
+def cmd_new(config: Dict[str, Any], tools_config: Dict[str, Any],
+            session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Limpia el contexto de la sesion: la siguiente pregunta arranca de cero."""
+    if session is None:
+        print(red(t("session_unavailable")))
+        return tools_config, None
+    removed = session.clear()
+    print(green(t("new_session_cleared").format(count=removed)))
+    return tools_config, None
+
+
+def cmd_compact(config: Dict[str, Any], tools_config: Dict[str, Any],
+                session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Resume el contexto de la sesion para que quepa en la ventana del modelo."""
+    if session is None or session.is_empty():
+        print(yellow(t("compact_empty")))
+        return tools_config, None
+    if apply_compaction(session, config):
+        print(green(t("compact_done")))
+    return tools_config, None
+
+
 COMMANDS = {
     "/settings": cmd_settings,
     "/tools": cmd_tools,
     "/editor": cmd_editor,
     "/agent": cmd_agent,
     "/skills": cmd_skills,
+    "/new": cmd_new,
+    "/compact": cmd_compact,
 }
 
 EXIT_COMMANDS = ("/exit", "/quit")
@@ -935,7 +1015,8 @@ def load_commands(path: str = "commands.json") -> List[Tuple[str, str]]:
     if not entries:
         entries = {"/settings": "cmd_settings", "/tools": "cmd_tools",
                    "/editor": "cmd_editor", "/agent": "cmd_agent",
-                   "/skills": "cmd_skills", "/exit": "cmd_exit"}
+                   "/skills": "cmd_skills", "/new": "cmd_new",
+                   "/compact": "cmd_compact", "/exit": "cmd_exit"}
     return [(name, t(key)) for name, key in entries.items()]
 
 
@@ -959,8 +1040,8 @@ def _skill_command_body(cmd: str, config: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def handle_command(user_input: str, config: Dict[str, Any],
-                   tools_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+def handle_command(user_input: str, config: Dict[str, Any], tools_config: Dict[str, Any],
+                   session: Optional[Session] = None) -> Tuple[Dict[str, Any], Optional[str]]:
     """Ejecuta un comando '/xxx'. Devuelve (tools_config, prompt opcional)."""
     cmd = user_input.strip().split()[0].lower()
     handler = COMMANDS.get(cmd)
@@ -972,7 +1053,7 @@ def handle_command(user_input: str, config: Dict[str, Any],
             return tools_config, body
         print(red(t("unknown_command").format(cmd=cmd, commands=", ".join(list(COMMANDS) + list(EXIT_COMMANDS)))))
         return tools_config, None
-    return handler(config, tools_config)
+    return handler(config, tools_config, session)
 
 
 def main():
@@ -1057,13 +1138,17 @@ def main():
     # Barra de estadisticas anclada a la ultima fila (se libera al salir).
     statistics.idle_tick()
 
-    history: List[Dict[str, str]] = []
+    session = Session()
 
     def run_turn(prompt: str) -> None:
         statistics.begin_answer()
-        answer = run_react_agent(prompt, config, tools_config, history)
+        answer = run_react_agent(prompt, config, tools_config, session.history)
         statistics.end_answer()
-        update_history(history, prompt, answer)
+        session.add(prompt, answer)
+        # Compactado automatico: si el contexto已达ico el umbral, se resume solo.
+        if should_autocompact(config, statistics.last_ctx() or 0):
+            if apply_compaction(session, config):
+                print(green(t("autocompact_triggered")))
 
     while True:
         # Reconstruido cada turno: refleja cambios de agente y skills nuevas en
@@ -1088,7 +1173,7 @@ def main():
             break
 
         if user_input.startswith("/"):
-            tools_config, prompt = handle_command(user_input, config, tools_config)
+            tools_config, prompt = handle_command(user_input, config, tools_config, session)
             statistics.idle_tick()  # /settings o /editor pudieron alternar stats en caliente
             if prompt:
                 run_turn(prompt)

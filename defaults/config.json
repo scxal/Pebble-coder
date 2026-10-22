@@ -19,5 +19,7 @@
   "agents_dir": ".pbl/agents",
   "agent": "frontend-developer",
   "skills_dir": ".pbl/skills",
-  "skills": []
+  "skills": [],
+  "autocompact": "on",
+  "autocompact_threshold": 85
 }
