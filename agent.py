@@ -12,6 +12,9 @@ from typing import Dict, Any, List, Tuple, Optional
 
 import requests
 
+import pbl_home
+pbl_home.bootstrap()
+
 import theme
 from theme import c, green, blue, cyan, yellow, red, bold, dim
 
@@ -26,7 +29,6 @@ import statistics
 
 
 # --- Translation loading ---
-_SCRIPT_DIR = Path(__file__).resolve().parent
 _lang = "es"
 _t_es = {}
 _translations = {}
@@ -38,16 +40,16 @@ def reload_translations() -> None:
     """(Re)carga el idioma desde config.json y refresca las traducciones."""
     global _lang, _t_es, _translations, _ui, _parser
     try:
-        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
+        cfg = json.loads(pbl_home.config_path().read_text(encoding="utf-8"))
         _lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
     except Exception:
         pass
     try:
-        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text(encoding="utf-8"))
+        _t_es = json.loads(pbl_home.translations_path("es").read_text(encoding="utf-8"))
     except FileNotFoundError:
         _t_es = {}
     try:
-        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8"))
+        _translations = json.loads(pbl_home.translations_path(_lang).read_text(encoding="utf-8"))
     except FileNotFoundError:
         _translations = {}
     _ui = _translations.get("ui", {})
@@ -123,11 +125,11 @@ def load_system_prompt(config: Dict[str, Any]) -> str:
     prompt_file = config.get("system_prompt_file", "system_prompt.md")
     prompt_path = Path(prompt_file)
     if not prompt_path.is_absolute():
-        prompt_path = _SCRIPT_DIR / prompt_path
+        prompt_path = pbl_home.system_prompt_path(prompt_file)
 
     format_type = (config.get("format") or "text").lower().strip()
     if prompt_file == "system_prompt.md" and format_type in _FORMAT_PROMPT_FILES:
-        format_candidate = _SCRIPT_DIR / _FORMAT_PROMPT_FILES[format_type]
+        format_candidate = pbl_home.system_prompt_path(_FORMAT_PROMPT_FILES[format_type])
         if format_candidate.exists():
             prompt_path = format_candidate
 
@@ -600,7 +602,7 @@ def run_react_agent(user_input: str, config: Dict[str, Any], tools_config: Dict[
 
 def save_config(config: Dict[str, Any]) -> None:
     """Guarda la configuracion en config.json preservando el orden de claves."""
-    with open(_SCRIPT_DIR / "config.json", "w", encoding="utf-8") as f:
+    with open(pbl_home.config_path(), "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
@@ -696,7 +698,7 @@ def cmd_settings(config: Dict[str, Any], tools_config: Dict[str, Any]) -> Tuple[
     if config.get("tools_file", "tools.json") != original_tools_file:
         tools_file = config.get("tools_file", "tools.json")
         if not Path(tools_file).is_absolute():
-            tools_file = str(_SCRIPT_DIR / tools_file)
+            tools_file = str(pbl_home.home() / tools_file)
         tools_config = load_tools_config(tools_file)
     print(t("menu_closed"))
     return tools_config, None
@@ -923,7 +925,7 @@ def load_commands(path: str = "commands.json") -> List[Tuple[str, str]]:
     """Carga los comandos del fichero con su descripcion traducida."""
     cmd_path = Path(path)
     if not cmd_path.is_absolute():
-        cmd_path = _SCRIPT_DIR / cmd_path
+        cmd_path = pbl_home.home() / cmd_path
     entries: Dict[str, str] = {}
     if cmd_path.exists():
         try:
@@ -979,14 +981,14 @@ def main():
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
 
-    config = load_config(str(_SCRIPT_DIR / "config.json"))
+    config = load_config(str(pbl_home.config_path()))
     theme.set_theme(str(config.get("theme", theme.DEFAULT_THEME)))
     statistics.bind(config)
     tools_file = config.get("tools_file", "tools.json")
-    
+
     # Resolve relative paths for project files
     if not Path(tools_file).is_absolute():
-        tools_file = str(_SCRIPT_DIR / tools_file)
+        tools_file = str(pbl_home.home() / tools_file)
     tools_config = load_tools_config(tools_file)
 
     enabled_tools = [name for name, cfg in tools_config.items() if cfg.get("enabled", True)]

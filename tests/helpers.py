@@ -19,8 +19,10 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pbl_home
+
 PROJECT = Path(__file__).resolve().parent.parent
-CONFIG = PROJECT / "config.json"
+CONFIG = pbl_home.config_path()
 
 if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
@@ -37,7 +39,7 @@ KNOWN_CONFIG = {
     "observation": "off",
 }
 
-TOOLS = PROJECT / "tools.json"
+TOOLS = pbl_home.tools_path()
 
 
 def net_ok(timeout=4):

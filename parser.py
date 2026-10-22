@@ -2,27 +2,27 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Optional, Tuple
-from pathlib import Path
+
+import pbl_home
 
 
 # --- Translation loading ---
-_SCRIPT_DIR = Path(__file__).resolve().parent
 _lang = "es"
 try:
-    _cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
+    _cfg = json.loads(pbl_home.config_path().read_text(encoding="utf-8"))
     _lang = (_cfg.get("language") or "es") if _cfg.get("language") in ("es", "en") else "es"
 except Exception:
     pass
 
 _parser_es = {}
 try:
-    _parser_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text(encoding="utf-8")).get("parser", {})
+    _parser_es = json.loads(pbl_home.translations_path("es").read_text(encoding="utf-8")).get("parser", {})
 except FileNotFoundError:
     pass
 
 _parser_translations = {}
 try:
-    _parser_translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8")).get("parser", {})
+    _parser_translations = json.loads(pbl_home.translations_path(_lang).read_text(encoding="utf-8")).get("parser", {})
 except FileNotFoundError:
     _parser_translations = {}
 

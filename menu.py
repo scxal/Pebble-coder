@@ -15,7 +15,6 @@ callbacks). Pensado para /settings hoy y /skill, /agent, etc. manana.
 import json
 import os
 import sys
-from pathlib import Path
 from typing import Any, Callable, List, Optional
 
 try:
@@ -31,9 +30,10 @@ except ImportError:
 # --- Colores (tema central) ---
 from theme import c, green, cyan, yellow, red, bold, dim
 
+import pbl_home
+
 
 # --- Traducciones (seccion "menu") ---
-_SCRIPT_DIR = Path(__file__).resolve().parent
 _lang = "es"
 _t_es = {}
 _translations = {}
@@ -43,16 +43,16 @@ _menu_t = {}
 def load_translations() -> None:
     global _lang, _t_es, _translations, _menu_t
     try:
-        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
+        cfg = json.loads(pbl_home.config_path().read_text(encoding="utf-8"))
         _lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
     except Exception:
         pass
     try:
-        _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text(encoding="utf-8"))
+        _t_es = json.loads(pbl_home.translations_path("es").read_text(encoding="utf-8"))
     except FileNotFoundError:
         _t_es = {}
     try:
-        _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8"))
+        _translations = json.loads(pbl_home.translations_path(_lang).read_text(encoding="utf-8"))
     except FileNotFoundError:
         _translations = {}
     _menu_t = _translations.get("menu", {})

@@ -2,6 +2,7 @@
 import unittest
 
 import agent
+import pbl_home
 from agent import _HISTORY_MAX_MESSAGES, run_react_agent, update_history
 from tools import load_tools_config
 from tests.helpers import FakeLLM, ConfigGuard
@@ -12,7 +13,7 @@ RESP2 = "Thought: ok.\n\nFinal Answer:\nHECHO"
 
 class TestSessionHistory(unittest.TestCase):
     def _config(self):
-        return agent.load_config(str(agent._SCRIPT_DIR / "config.json"))
+        return agent.load_config(str(pbl_home.config_path()))
 
     def test_second_turn_includes_previous_exchange(self):
         with FakeLLM([RESP1, RESP2]) as llm, \
@@ -20,7 +21,7 @@ class TestSessionHistory(unittest.TestCase):
                           "timeout": 10, "thought": "off", "observation": "off",
                           "debug": "off", "language": "es"}):
             config = self._config()
-            tools_config = load_tools_config(str(agent._SCRIPT_DIR / "tools.json"))
+            tools_config = load_tools_config(str(pbl_home.tools_path()))
             history = []
 
             answer = run_react_agent("Mi nombre es Sandia", config, tools_config, history)
@@ -40,7 +41,7 @@ class TestSessionHistory(unittest.TestCase):
                           "timeout": 10, "thought": "off", "observation": "off",
                           "debug": "off", "language": "es"}):
             config = self._config()
-            tools_config = load_tools_config(str(agent._SCRIPT_DIR / "tools.json"))
+            tools_config = load_tools_config(str(pbl_home.tools_path()))
 
             run_react_agent("Hola", config, tools_config, [])
 
@@ -58,8 +59,8 @@ class TestFormatErrorCorrection(unittest.TestCase):
              ConfigGuard({"base_url": f"http://127.0.0.1:{llm.port}/v1", "max_iterations": 5,
                           "timeout": 10, "thought": "off", "observation": "off",
                           "debug": "off", "language": "es", "format": "text"}):
-            config = agent.load_config(str(agent._SCRIPT_DIR / "config.json"))
-            tools_config = load_tools_config(str(agent._SCRIPT_DIR / "tools.json"))
+            config = agent.load_config(str(pbl_home.config_path()))
+            tools_config = load_tools_config(str(pbl_home.tools_path()))
 
             result = run_react_agent("¿Cual es mi nombre?", config, tools_config, [])
 
@@ -78,8 +79,8 @@ class TestFormatErrorCorrection(unittest.TestCase):
              ConfigGuard({"base_url": f"http://127.0.0.1:{llm.port}/v1", "max_iterations": 5,
                           "timeout": 10, "thought": "off", "observation": "off",
                           "debug": "off", "language": "es", "format": "xml"}):
-            config = agent.load_config(str(agent._SCRIPT_DIR / "config.json"))
-            tools_config = load_tools_config(str(agent._SCRIPT_DIR / "tools.json"))
+            config = agent.load_config(str(pbl_home.config_path()))
+            tools_config = load_tools_config(str(pbl_home.tools_path()))
 
             result = run_react_agent("¿Cual es mi nombre?", config, tools_config, [])
 

@@ -23,7 +23,7 @@ Complimiento (si falla, el agente NO se indexa y /agent lo ignora):
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
+import pbl_home
 
 AGENT_MAX_LINES = 200
 _FM = "---"
@@ -45,10 +45,10 @@ class AgentInfo:
 
 
 def resolve_dir(agents_dir: str) -> Path:
-    """Resuelve `<agents_dir>` relativo al directorio del proyecto."""
+    """Resuelve `<agents_dir>` relativo a ~/.pbl (o absoluto)."""
     path = Path(agents_dir or ".pbl/agents")
     if not path.is_absolute():
-        path = _SCRIPT_DIR / path
+        path = pbl_home.home() / path
     return path
 
 

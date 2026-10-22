@@ -11,15 +11,16 @@ from typing import Dict, Any, Tuple, Optional
 
 import requests
 
+import pbl_home
+
 
 # --- Translation loading ---
-_SCRIPT_DIR = Path(__file__).resolve().parent
 _lang = "es"
 _tool_t = {}
 
 _t_es = {}
 try:
-    _t_es = json.loads((_SCRIPT_DIR / "translations_es.json").read_text(encoding="utf-8"))
+    _t_es = json.loads(pbl_home.translations_path("es").read_text(encoding="utf-8"))
 except FileNotFoundError:
     pass
 
@@ -30,7 +31,7 @@ def set_language(lang: str) -> str:
     _lang = lang if lang in ("es", "en") else "es"
     try:
         translations = json.loads(
-            (_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8")
+            pbl_home.translations_path(_lang).read_text(encoding="utf-8")
         )
     except (OSError, json.JSONDecodeError):
         translations = {}
@@ -42,7 +43,7 @@ def reload_translations() -> None:
     """Relee `language` de config.json (mismo patron que agent.reload_translations)."""
     lang = "es"
     try:
-        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
+        cfg = json.loads(pbl_home.config_path().read_text(encoding="utf-8"))
         lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
     except Exception:
         pass
@@ -528,6 +529,8 @@ TOOL_FUNCTIONS = {
 
 def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
     config_path = Path(path)
+    if not config_path.is_absolute():
+        config_path = pbl_home.home() / config_path
     if not config_path.exists():
         return {
             "list_files": {"enabled": True, "confirm": False},
@@ -547,8 +550,8 @@ def load_tools_config(path: str = "tools.json") -> Dict[str, Any]:
 def save_tools_config(tools_config: Dict[str, Any], path: str = "tools.json") -> None:
     """Guarda tools.json preservando el orden de claves (mismo estilo que load)."""
     config_path = Path(path)
-    if not config_path.is_absolute() and not config_path.exists():
-        config_path = Path(__file__).resolve().parent / config_path
+    if not config_path.is_absolute():
+        config_path = pbl_home.home() / config_path
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(tools_config, f, indent=2, ensure_ascii=False)
         f.write("\n")

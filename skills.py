@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 
 from agents import active_agent, parse_frontmatter
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
+import pbl_home
 
 SKILL_MAX_LINES = 200
 _FM = "---"
@@ -43,10 +43,10 @@ class SkillInfo:
 
 
 def resolve_dir(skills_dir: str) -> Path:
-    """Resuelve `<skills_dir>` relativo al directorio del proyecto."""
+    """Resuelve `<skills_dir>` relativo a ~/.pbl (o absoluto)."""
     path = Path(skills_dir or ".pbl/skills")
     if not path.is_absolute():
-        path = _SCRIPT_DIR / path
+        path = pbl_home.home() / path
     return path
 
 

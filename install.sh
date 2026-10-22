@@ -27,5 +27,19 @@ EOF
 
 chmod +x "$LAUNCHER"
 
+# User home: ~/.pbl with config/templates. Copy defaults only if missing so user
+# edits survive; the app also auto-bootstraps on first run.
+PBL_HOME="${HOME}/.pbl"
+mkdir -p "$PBL_HOME" "$PBL_HOME/agents" "$PBL_HOME/skills"
+for f in config.json tools.json commands.json \
+         translations_es.json translations_en.json \
+         system_prompt.md system_prompt_xml.md \
+         system_prompt_hermes.md system_prompt_deepseek.md; do
+  [ -e "$PBL_HOME/$f" ] || cp "$SCRIPT_DIR/defaults/$f" "$PBL_HOME/$f"
+done
+cp -rn "$SCRIPT_DIR/defaults/agents/." "$PBL_HOME/agents/" 2>/dev/null || true
+cp -rn "$SCRIPT_DIR/defaults/skills/." "$PBL_HOME/skills/" 2>/dev/null || true
+
 echo "Installed 'pbl' -> $TARGET"
+echo "Installed ~/.pbl from defaults/ ($PBL_HOME)"
 echo "Ensure $INSTALL_DIR is in your PATH (add 'export PATH=\"\$HOME/.local/bin:\$PATH\"' to ~/.bashrc or ~/.zshrc)"

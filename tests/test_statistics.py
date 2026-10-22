@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import statistics
 
 import agent
+import pbl_home
 from agent import run_react_agent
 from tests.helpers import AgentPty, ConfigGuard, FakeLLM, PROJECT
 
@@ -243,8 +244,8 @@ class TestFmtSecs(unittest.TestCase):
 
 class TestTranslationsParity(unittest.TestCase):
     def test_sections_have_identical_keys_in_both_languages(self):
-        es = json.loads((PROJECT / "translations_es.json").read_text(encoding="utf-8"))
-        en = json.loads((PROJECT / "translations_en.json").read_text(encoding="utf-8"))
+        es = json.loads(pbl_home.translations_path("es").read_text(encoding="utf-8"))
+        en = json.loads(pbl_home.translations_path("en").read_text(encoding="utf-8"))
         for section in ("ui", "menu", "tools", "parser"):
             self.assertEqual(set(es[section]), set(en[section]), section)
 
