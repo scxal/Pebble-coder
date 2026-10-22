@@ -15,11 +15,7 @@ import requests
 # --- Translation loading ---
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _lang = "es"
-try:
-    _cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
-    _lang = (_cfg.get("language") or "es") if _cfg.get("language") in ("es", "en") else "es"
-except Exception:
-    pass
+_tool_t = {}
 
 _t_es = {}
 try:
@@ -27,13 +23,33 @@ try:
 except FileNotFoundError:
     pass
 
-_translations = {}
-try:
-    _translations = json.loads((_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8"))
-except FileNotFoundError:
-    _translations = {}
 
-_tool_t = _translations.get("tools", {})
+def set_language(lang: str) -> str:
+    """Fija el idioma de las busquedas y los textos de herramientas."""
+    global _lang, _tool_t
+    _lang = lang if lang in ("es", "en") else "es"
+    try:
+        translations = json.loads(
+            (_SCRIPT_DIR / f"translations_{_lang}.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        translations = {}
+    _tool_t = translations.get("tools", {})
+    return _lang
+
+
+def reload_translations() -> None:
+    """Relee `language` de config.json (mismo patron que agent.reload_translations)."""
+    lang = "es"
+    try:
+        cfg = json.loads((_SCRIPT_DIR / "config.json").read_text(encoding="utf-8"))
+        lang = (cfg.get("language") or "es") if cfg.get("language") in ("es", "en") else "es"
+    except Exception:
+        pass
+    set_language(lang)
+
+
+reload_translations()
 
 
 def t(key: str, **kwargs) -> str:

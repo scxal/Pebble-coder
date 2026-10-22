@@ -17,6 +17,7 @@ from theme import c, green, blue, cyan, yellow, red, bold, dim
 
 
 from parser import parse_llm_response, ParseResult
+import tools
 from tools import execute_tool, load_tools_config, save_tools_config, parse_write_file_args
 from menu import MenuItem, command_input, confirm, run_menu
 import agents
@@ -51,6 +52,7 @@ def reload_translations() -> None:
         _translations = {}
     _ui = _translations.get("ui", {})
     _parser = _translations.get("parser", {})
+    tools.set_language(_lang)
 
 
 reload_translations()
